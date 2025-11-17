@@ -2,13 +2,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { format, startOfMonth, endOfMonth, isSameMonth, parseISO, addMonths, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, Download, Sparkles, Edit, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Edit, Trash2 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 import { UserSettings, WorkEntry, WorkStatus, AdvanceEntry, MonthlyStats } from '../types';
 import { getWorkEntries, getAdvances, deleteWorkEntry } from '../services/storageService';
-import { generateMonthlyAnalysis } from '../services/geminiService';
 import { Card } from './ui/Card';
 
 interface ReportsTabProps {
@@ -32,13 +31,10 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
   const [currentDate, setCurrentDate] = useState(new Date());
   const [entries, setEntries] = useState<WorkEntry[]>([]);
   const [advances, setAdvances] = useState<AdvanceEntry[]>([]);
-  const [aiResult, setAiResult] = useState('');
-  const [loadingAi, setLoadingAi] = useState(false);
 
   useEffect(() => {
     setEntries(getWorkEntries());
     setAdvances(getAdvances());
-    setAiResult('');
   }, [currentDate, dataVersion]);
 
   const handleDeleteEntry = (id: string) => {
@@ -127,8 +123,6 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         finalY = (doc as any).lastAutoTable.finalY + 10;
     }
     
-    // Seção de despesas foi completamente removida do PDF
-    
     doc.setFontSize(12);
     doc.text(`Resumo do Período`, 14, finalY);
     finalY += 7;
@@ -161,15 +155,6 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     doc.text(`VALOR LÍQUIDO A RECEBER: R$ ${finalTotalForPDF.toFixed(2)}`, 14, finalY);
     doc.save(`Relatorio_${format(currentDate, 'MM-yyyy')}.pdf`);
   };
-
-  const handleAiAction = async () => {
-    setLoadingAi(true);
-    setAiResult('Analisando...');
-    const monthName = format(currentDate, 'MMMM', { locale: ptBR });
-    const text = await generateMonthlyAnalysis(stats, settings.workerName, monthName);
-    setAiResult(text);
-    setLoadingAi(false);
-  };
   
   const allItems = useMemo(() => [
         ...monthlyEntries.map(i => ({...i, itemType: 'work'})),
@@ -198,14 +183,9 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         </div>
       </Card>
       
-      <div className="grid grid-cols-2 gap-3">
-          <button onClick={generatePDF} className="flex items-center justify-center space-x-2 bg-slate-800 text-white p-3 rounded-xl"><Download className="w-5 h-5" /><span>Baixar PDF</span></button>
-          <button onClick={handleAiAction} disabled={loadingAi} className="flex items-center justify-center space-x-2 bg-purple-100 text-purple-700 p-3 rounded-xl"><Sparkles className={`w-5 h-5 ${loadingAi ? 'animate-spin' : ''}`} /><span>Análise IA</span></button>
+      <div className="w-full">
+          <button onClick={generatePDF} className="w-full flex items-center justify-center space-x-2 bg-slate-800 text-white p-3 rounded-xl"><Download className="w-5 h-5" /><span>Baixar Relatório PDF</span></button>
       </div>
-
-      {aiResult && (
-        <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-xl"><p className="text-purple-800 dark:text-purple-300 text-sm">{aiResult}</p></div>
-      )}
 
       <div className="space-y-4">
         <h3 className="text-lg font-bold">Histórico Detalhado do Mês</h3>
