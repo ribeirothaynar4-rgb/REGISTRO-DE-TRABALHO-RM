@@ -1,0 +1,5 @@
+{
+  "name": "Meu Registro de Trabalho RM",
+  "description": "Aplicativo profissional para trabalhadores autônomos registrarem dias trabalhados, adiantamentos e gerarem relatórios em PDF para receber pagamentos.",
+  "requestFramePermissions": []
+}
