@@ -1,0 +1,17 @@
+{
+  "name": "Meu Registro de Trabalho",
+  "short_name": "Meu Registro",
+  "description": "Aplicativo para controle de dias trabalhados e finanças.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/2910/2910768.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

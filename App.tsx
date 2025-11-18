@@ -47,23 +47,29 @@ const App: React.FC = () => {
   const NavButton: React.FC<{ tabName: Tab; icon: React.ElementType; label: string }> = ({ tabName, icon: Icon, label }) => (
     <button
       onClick={() => setActiveTab(tabName)}
-      className={`flex flex-col items-center p-2 rounded-lg transition-colors w-1/4 ${
-        activeTab === tabName ? 'text-blue-600 bg-blue-50 dark:bg-slate-800 dark:text-blue-400' : 'text-slate-400 hover:text-slate-600'
+      className={`flex flex-col items-center p-2 rounded-xl transition-all w-1/4 ${
+        activeTab === tabName 
+          ? 'text-violet-600 bg-violet-50 dark:bg-violet-900/30 dark:text-violet-300 font-bold scale-105' 
+          : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'
       }`}
     >
-      <Icon className="w-6 h-6 mb-1" />
-      <span className="text-xs font-medium">{label}</span>
+      <Icon className={`w-6 h-6 mb-1 ${activeTab === tabName ? 'stroke-[2.5px]' : ''}`} />
+      <span className="text-[10px] font-medium">{label}</span>
     </button>
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col">
-      <main className="flex-1 p-4 pb-24 max-w-md mx-auto w-full">{renderTab()}</main>
-      <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 px-2 py-2 z-50">
-        <div className="max-w-md mx-auto flex justify-around items-center">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans">
+      {/* Top Decorative Bar */}
+      <div className="h-1.5 w-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-indigo-500 fixed top-0 z-50"></div>
+      
+      <main className="flex-1 p-4 pb-24 max-w-md mx-auto w-full mt-2">{renderTab()}</main>
+      
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 px-4 py-3 z-50 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.05)]">
+        <div className="max-w-md mx-auto flex justify-between items-center">
           <NavButton tabName="home" icon={Home} label="Registro" />
           <NavButton tabName="advances" icon={DollarSign} label="Vales" />
-          <NavButton tabName="reports" icon={FileBarChart} label="Resumo" />
+          <NavButton tabName="reports" icon={FileBarChart} label="Relatórios" />
           <NavButton tabName="settings" icon={Settings} label="Ajustes" />
         </div>
       </nav>
