@@ -1,8 +1,9 @@
-import React, { useState, useRef } from 'react';
+
+import React, { useState, useRef, useEffect } from 'react';
 import { UserSettings } from '../types';
 import { saveSettings, exportAllData, importAllData, generateTestData } from '../services/storageService';
 import { Card } from './ui/Card';
-import { User, DollarSign, Briefcase, Download, Upload, Database, AlertTriangle, Wand2, Sun, Moon } from 'lucide-react';
+import { User, DollarSign, Briefcase, Download, Upload, Database, AlertTriangle, Wand2, Sun, Moon, Bell, Check, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface SettingsTabProps {
@@ -14,13 +15,46 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
   const [formData, setFormData] = useState<UserSettings>(settings);
   const [showSuccess, setShowSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
 
-  const handleChange = (field: keyof UserSettings, value: string | number) => {
+  useEffect(() => {
+    if ('Notification' in window) {
+      setNotificationPermission(Notification.permission);
+    }
+  }, []);
+
+  const handleChange = (field: keyof UserSettings, value: any) => {
     const newSettings = { ...formData, [field]: value };
     setFormData(newSettings);
     if (field === 'theme') {
        onSave(newSettings);
        saveSettings(newSettings);
+    }
+  };
+
+  const handleNotificationToggle = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const isChecked = e.target.checked;
+
+    if (isChecked) {
+        if (!('Notification' in window)) {
+            alert("Este navegador não suporta notificações.");
+            return;
+        }
+
+        if (Notification.permission === 'granted') {
+            handleChange('notificationEnabled', true);
+        } else {
+            const permission = await Notification.requestPermission();
+            setNotificationPermission(permission);
+            if (permission === 'granted') {
+                handleChange('notificationEnabled', true);
+            } else {
+                alert("Você precisa permitir notificações nas configurações do navegador para usar este recurso.");
+                handleChange('notificationEnabled', false);
+            }
+        }
+    } else {
+        handleChange('notificationEnabled', false);
     }
   };
 
@@ -83,6 +117,59 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
         <p className="text-slate-500 dark:text-slate-400">Seus dados e preferências</p>
       </header>
 
+      <Card title="Notificações" className="border-violet-200 dark:border-violet-900">
+        <div className="flex items-start space-x-4">
+            <div className="bg-violet-100 dark:bg-violet-900 p-2.5 rounded-full">
+                <Bell className="w-6 h-6 text-violet-600 dark:text-violet-300" />
+            </div>
+            <div className="flex-1">
+                <div className="flex justify-between items-center mb-2">
+                    <label className="text-slate-800 dark:text-white font-bold text-base" htmlFor="notif-toggle">
+                        Lembrete Diário
+                    </label>
+                    <div className="relative inline-block w-12 h-6 align-middle select-none transition duration-200 ease-in">
+                        <input 
+                            type="checkbox" 
+                            name="toggle" 
+                            id="notif-toggle" 
+                            checked={formData.notificationEnabled}
+                            onChange={handleNotificationToggle}
+                            className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-all duration-300 ease-in-out checked:right-0 checked:border-emerald-500 right-6 border-slate-300"
+                        />
+                        <label 
+                            htmlFor="notif-toggle" 
+                            className={`toggle-label block overflow-hidden h-6 rounded-full cursor-pointer transition-colors duration-300 ${formData.notificationEnabled ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-700'}`}
+                        ></label>
+                    </div>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                    Receba um aviso no celular para não esquecer de marcar o ponto.
+                </p>
+
+                {formData.notificationEnabled && (
+                    <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+                        <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
+                            <Clock className="w-4 h-4" />
+                            <span className="text-sm font-bold">Horário do aviso:</span>
+                        </div>
+                        <input 
+                            type="time" 
+                            value={formData.notificationTime} 
+                            onChange={(e) => handleChange('notificationTime', e.target.value)}
+                            className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-sm font-bold text-slate-800 dark:text-white focus:ring-2 focus:ring-violet-500 outline-none"
+                        />
+                    </div>
+                )}
+                
+                {formData.notificationEnabled && notificationPermission === 'denied' && (
+                     <p className="text-xs text-rose-500 mt-2 font-bold">
+                        ⚠️ Permissão negada no navegador. Habilite nas configurações do site.
+                     </p>
+                )}
+            </div>
+        </div>
+      </Card>
+
       <Card title="Aparência">
         <div className="grid grid-cols-2 gap-4">
             <button onClick={() => handleChange('theme', 'light')} className={`flex flex-col items-center p-4 rounded-xl border-2 transition-all ${formData.theme === 'light' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 dark:border-slate-700'}`}><Sun className="w-8 h-8 mb-2" /><span>Tema Claro</span></button>
@@ -112,17 +199,17 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
         </div>
       </Card>
 
-      <button onClick={handleSave} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-lg">{showSuccess ? 'Configurações Salvas!' : 'Salvar Alterações'}</button>
+      <button onClick={handleSave} className="w-full bg-gradient-to-r from-violet-600 to-indigo-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-violet-200 dark:shadow-none">{showSuccess ? 'Configurações Salvas!' : 'Salvar Alterações'}</button>
 
       <div className="border-t border-slate-200 dark:border-slate-800 my-6 pt-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Database className="w-5 h-5" />Backup e Restauração</h2>
           <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 p-4 mb-4 flex gap-3"><AlertTriangle className="w-5 h-5 text-amber-600" /><div className="text-sm text-amber-900 dark:text-amber-300"><p className="font-bold">Atenção:</p><p>Seus dados ficam salvos neste dispositivo. Faça backup para não perdê-los.</p></div></div>
           <div className="grid grid-cols-2 gap-4">
-              <button onClick={handleExport} className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 border rounded-xl"><Download className="w-8 h-8 text-blue-600 mb-2" /><span>Baixar Backup</span></button>
-              <button onClick={handleImportClick} className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 border rounded-xl"><Upload className="w-8 h-8 text-green-600 mb-2" /><span>Restaurar</span><input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json" className="hidden" /></button>
+              <button onClick={handleExport} className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 border rounded-xl hover:bg-slate-50 transition-colors"><Download className="w-8 h-8 text-blue-600 mb-2" /><span>Baixar Backup</span></button>
+              <button onClick={handleImportClick} className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 border rounded-xl hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-green-600 mb-2" /><span>Restaurar</span><input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json" className="hidden" /></button>
           </div>
           <div className="mt-6 pt-6 border-t">
-            <button onClick={handleGenerateDemoData} className="w-full flex items-center justify-center space-x-2 p-3 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg"><Wand2 className="w-5 h-5" /><span>Preencher com Dados de Teste</span></button>
+            <button onClick={handleGenerateDemoData} className="w-full flex items-center justify-center space-x-2 p-3 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-sm font-medium"><Wand2 className="w-4 h-4" /><span>Preencher com Dados de Teste</span></button>
           </div>
       </div>
     </div>

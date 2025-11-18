@@ -1,12 +1,15 @@
 
+
+
 import React, { useState, useEffect } from 'react';
 import { Home, DollarSign, FileBarChart, Settings } from 'lucide-react';
 import HomeTab from './components/HomeTab';
 import AdvancesTab from './components/AdvancesTab';
 import ReportsTab from './components/ReportsTab';
 import SettingsTab from './components/SettingsTab';
-import { getSettings } from './services/storageService';
-import { UserSettings } from './types';
+import { getSettings, getLastNotificationDate, setLastNotificationDate, getWorkEntries } from './services/storageService';
+import { UserSettings, WorkStatus } from './types';
+import { format } from 'date-fns';
 
 type Tab = 'home' | 'advances' | 'reports' | 'settings';
 
@@ -23,6 +26,45 @@ const App: React.FC = () => {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', settings.theme === 'dark');
   }, [settings.theme]);
+
+  // Lógica de Notificação
+  useEffect(() => {
+    const checkNotification = () => {
+        if (!settings.notificationEnabled || !settings.notificationTime) return;
+
+        const now = new Date();
+        const currentTime = format(now, 'HH:mm');
+        const todayStr = format(now, 'yyyy-MM-dd');
+        const lastSent = getLastNotificationDate();
+
+        // Se já enviou hoje, não envia de novo
+        if (lastSent === todayStr) return;
+
+        // Verifica se está na hora (com margem de 1 minuto para garantir que pegue)
+        if (currentTime === settings.notificationTime) {
+            // Verifica se já trabalhou hoje para não mandar alerta desnecessário
+            const entries = getWorkEntries();
+            const hasEntryToday = entries.some(e => e.date === todayStr && e.status !== WorkStatus.EXTRA_SERVICE);
+
+            if (!hasEntryToday) {
+                if (Notification.permission === 'granted') {
+                    new Notification("Hora de registrar!", {
+                        body: "Você ainda não marcou seu dia de trabalho hoje. Clique para registrar.",
+                        icon: "https://cdn-icons-png.flaticon.com/512/2910/2910768.png" // Ícone genérico de calendário
+                    });
+                    setLastNotificationDate(todayStr);
+                }
+            } else {
+                 // Se já tem registro, marca como 'enviado' para não checar mais hoje
+                 setLastNotificationDate(todayStr);
+            }
+        }
+    };
+
+    // Checa a cada 30 segundos
+    const intervalId = setInterval(checkNotification, 30000);
+    return () => clearInterval(intervalId);
+  }, [settings]);
 
   const handleDataUpdate = () => setDataVersion(prev => prev + 1);
   const handleSettingsUpdate = (newSettings: UserSettings) => {

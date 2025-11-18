@@ -1,5 +1,6 @@
 
 
+
 // FIX: Import ExpenseEntry type.
 import { WorkEntry, AdvanceEntry, UserSettings, WorkStatus, ExpenseEntry } from '../types';
 import { format, subDays } from 'date-fns';
@@ -10,6 +11,7 @@ const KEYS = {
   // FIX: Add key for expenses.
   EXPENSES: 'mrt_expenses',
   SETTINGS: 'mrt_settings',
+  LAST_NOTIF: 'mrt_last_notification_date'
 };
 
 export const getWorkEntries = (): WorkEntry[] => {
@@ -81,18 +83,38 @@ export const deleteExpense = (id: string) => {
 
 export const getSettings = (): UserSettings => {
   const data = localStorage.getItem(KEYS.SETTINGS);
-  return data ? JSON.parse(data) : {
+  const defaultSettings: UserSettings = {
     dailyRate: 200,
     workerName: '',
     employerName: '',
     currency: 'BRL',
     theme: 'light',
+    notificationEnabled: false,
+    notificationTime: '18:00'
   };
+
+  if (data) {
+    const parsed = JSON.parse(data);
+    // Merge defaults to ensure new fields exist for old users
+    return { ...defaultSettings, ...parsed };
+  }
+  
+  return defaultSettings;
 };
 
 export const saveSettings = (settings: UserSettings) => {
   localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
 };
+
+// --- Helpers para Notificação ---
+export const setLastNotificationDate = (dateStr: string) => {
+    localStorage.setItem(KEYS.LAST_NOTIF, dateStr);
+}
+
+export const getLastNotificationDate = (): string | null => {
+    return localStorage.getItem(KEYS.LAST_NOTIF);
+}
+
 
 // --- FUNÇÕES DE BACKUP ---
 
@@ -104,7 +126,7 @@ export const exportAllData = (): string => {
     expenses: getExpenses(),
     settings: getSettings(),
     exportedAt: new Date().toISOString(),
-    appVersion: '1.0' // Versão revertida
+    appVersion: '1.1' // Updated version
   };
   return JSON.stringify(backupData);
 };
@@ -150,6 +172,8 @@ export const generateTestData = () => {
     employerName: 'Construtora Modelo',
     currency: 'BRL',
     theme: 'light',
+    notificationEnabled: false,
+    notificationTime: '18:00'
   };
   saveSettings(demoSettings);
 

@@ -39,6 +39,8 @@ export interface UserSettings {
   employerName: string;
   currency: string;
   theme: 'light' | 'dark';
+  notificationEnabled: boolean;
+  notificationTime: string; // Format "HH:mm"
 }
 
 export interface MonthlyStats {
