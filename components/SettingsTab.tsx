@@ -1,9 +1,8 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { UserSettings } from '../types';
 import { saveSettings, exportAllData, importAllData, generateTestData } from '../services/storageService';
 import { Card } from './ui/Card';
-import { User, DollarSign, Briefcase, Download, Upload, Database, AlertTriangle, Wand2, Sun, Moon, Bell, Check, Clock } from 'lucide-react';
+import { User, DollarSign, Briefcase, Download, Upload, Database, AlertTriangle, Wand2, Sun, Moon, Bell, Check, Clock, Code } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface SettingsTabProps {
@@ -208,9 +207,18 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
               <button onClick={handleExport} className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 border rounded-xl hover:bg-slate-50 transition-colors"><Download className="w-8 h-8 text-blue-600 mb-2" /><span>Baixar Backup</span></button>
               <button onClick={handleImportClick} className="flex flex-col items-center justify-center p-4 bg-white dark:bg-slate-900 border rounded-xl hover:bg-slate-50 transition-colors"><Upload className="w-8 h-8 text-green-600 mb-2" /><span>Restaurar</span><input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json" className="hidden" /></button>
           </div>
-          <div className="mt-6 pt-6 border-t">
-            <button onClick={handleGenerateDemoData} className="w-full flex items-center justify-center space-x-2 p-3 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-sm font-medium"><Wand2 className="w-4 h-4" /><span>Preencher com Dados de Teste</span></button>
+          <div className="mt-6 pt-6 border-t dark:border-slate-800">
+            <button onClick={handleGenerateDemoData} className="w-full flex items-center justify-center space-x-2 p-3 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-lg text-sm font-medium"><Wand2 className="w-4 h-4" /><span>Preencher com Dados de Teste</span></button>
           </div>
+      </div>
+
+      <div className="mt-8 mb-4 flex flex-col items-center justify-center opacity-80">
+        <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-600 font-medium">
+             <Code className="w-3 h-3" />
+             <span>Desenvolvido por</span>
+             <span className="text-violet-600 dark:text-violet-400 font-bold">Roniel N.</span>
+        </div>
+        <p className="text-[10px] text-slate-300 dark:text-slate-700 mt-1">Meu Registro de Trabalho v1.1</p>
       </div>
     </div>
   );
