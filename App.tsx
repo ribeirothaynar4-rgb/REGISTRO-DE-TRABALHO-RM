@@ -1,23 +1,42 @@
-
-
-
 import React, { useState, useEffect } from 'react';
 import { Home, DollarSign, FileBarChart, Settings } from 'lucide-react';
 import HomeTab from './components/HomeTab';
 import AdvancesTab from './components/AdvancesTab';
 import ReportsTab from './components/ReportsTab';
 import SettingsTab from './components/SettingsTab';
+import AuthPage from './components/AuthPage';
 import { getSettings, getLastNotificationDate, setLastNotificationDate, getWorkEntries } from './services/storageService';
 import { UserSettings, WorkStatus } from './types';
 import { format } from 'date-fns';
+import { supabase } from './services/supabaseClient';
 
 type Tab = 'home' | 'advances' | 'reports' | 'settings';
 
 const App: React.FC = () => {
+  const [session, setSession] = useState<any>(null);
+  const [loadingSession, setLoadingSession] = useState(true);
+
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [settings, setSettings] = useState<UserSettings>(getSettings());
   const [dataVersion, setDataVersion] = useState(0);
   const [dateToEdit, setDateToEdit] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Check active session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoadingSession(false);
+    });
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     setSettings(getSettings());
@@ -29,6 +48,8 @@ const App: React.FC = () => {
 
   // Lógica de Notificação
   useEffect(() => {
+    if (!session) return; // Só roda notificação se estiver logado
+
     const checkNotification = () => {
         if (!settings.notificationEnabled || !settings.notificationTime) return;
 
@@ -64,7 +85,7 @@ const App: React.FC = () => {
     // Checa a cada 30 segundos
     const intervalId = setInterval(checkNotification, 30000);
     return () => clearInterval(intervalId);
-  }, [settings]);
+  }, [settings, session]);
 
   const handleDataUpdate = () => setDataVersion(prev => prev + 1);
   const handleSettingsUpdate = (newSettings: UserSettings) => {
@@ -75,6 +96,18 @@ const App: React.FC = () => {
     setDateToEdit(date);
     setActiveTab('home');
   };
+
+  if (loadingSession) {
+      return (
+          <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600"></div>
+          </div>
+      );
+  }
+
+  if (!session) {
+      return <AuthPage />;
+  }
 
   const renderTab = () => {
     switch (activeTab) {

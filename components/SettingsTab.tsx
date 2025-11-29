@@ -2,8 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { UserSettings } from '../types';
 import { saveSettings, exportAllData, importAllData, generateTestData } from '../services/storageService';
 import { Card } from './ui/Card';
-import { User, DollarSign, Briefcase, Download, Upload, Database, AlertTriangle, Wand2, Sun, Moon, Bell, Check, Clock, Code } from 'lucide-react';
+import { User, DollarSign, Briefcase, Download, Upload, Database, AlertTriangle, Wand2, Sun, Moon, Bell, Clock, Code, LogOut } from 'lucide-react';
 import { format } from 'date-fns';
+import { supabase } from '../services/supabaseClient';
 
 interface SettingsTabProps {
   settings: UserSettings;
@@ -64,6 +65,12 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     setTimeout(() => setShowSuccess(false), 3000);
   };
 
+  const handleLogout = async () => {
+    if (confirm("Tem certeza que deseja sair?")) {
+        await supabase.auth.signOut();
+    }
+  };
+
   const handleExport = () => {
     const data = exportAllData();
     const blob = new Blob([data], { type: 'application/json' });
@@ -111,9 +118,18 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
-      <header>
-        <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Configurações</h1>
-        <p className="text-slate-500 dark:text-slate-400">Seus dados e preferências</p>
+      <header className="flex justify-between items-center">
+        <div>
+            <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Configurações</h1>
+            <p className="text-slate-500 dark:text-slate-400">Seus dados e preferências</p>
+        </div>
+        <button 
+            onClick={handleLogout}
+            className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl hover:bg-rose-100 hover:text-rose-600 transition-colors"
+            title="Sair"
+        >
+            <LogOut className="w-6 h-6" />
+        </button>
       </header>
 
       <Card title="Notificações" className="border-violet-200 dark:border-violet-900">
@@ -218,7 +234,7 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
              <span>Desenvolvido por</span>
              <span className="text-violet-600 dark:text-violet-400 font-bold">Roniel N.</span>
         </div>
-        <p className="text-[10px] text-slate-300 dark:text-slate-700 mt-1">Meu Registro de Trabalho v1.1</p>
+        <p className="text-[10px] text-slate-300 dark:text-slate-700 mt-1">Meu Registro de Trabalho v1.2</p>
       </div>
     </div>
   );
