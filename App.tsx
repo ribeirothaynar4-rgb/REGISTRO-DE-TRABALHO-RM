@@ -1,20 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { Home, DollarSign, FileBarChart, Settings } from 'lucide-react';
+import { Home, DollarSign, FileBarChart, Settings, CloudDownload } from 'lucide-react';
 import HomeTab from './components/HomeTab';
 import AdvancesTab from './components/AdvancesTab';
 import ReportsTab from './components/ReportsTab';
 import SettingsTab from './components/SettingsTab';
+import ExpensesTab from './components/ExpensesTab'; // Added ExpensesTab
 import AuthPage from './components/AuthPage';
-import { getSettings, getLastNotificationDate, setLastNotificationDate, getWorkEntries } from './services/storageService';
+import { getSettings, getLastNotificationDate, setLastNotificationDate, getWorkEntries, fetchAllFromSupabase } from './services/storageService';
 import { UserSettings, WorkStatus } from './types';
 import { format } from 'date-fns';
 import { supabase } from './services/supabaseClient';
 
-type Tab = 'home' | 'advances' | 'reports' | 'settings';
+type Tab = 'home' | 'advances' | 'reports' | 'settings' | 'expenses';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
   const [loadingSession, setLoadingSession] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false); // Estado para mostrar carregamento de dados da nuvem
 
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [settings, setSettings] = useState<UserSettings>(getSettings());
@@ -26,6 +28,9 @@ const App: React.FC = () => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setLoadingSession(false);
+      if (session) {
+        syncData();
+      }
     });
 
     // Listen for auth changes
@@ -33,10 +38,23 @@ const App: React.FC = () => {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      if (session) {
+        syncData();
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const syncData = async () => {
+    setIsSyncing(true);
+    // Baixa dados do Supabase e atualiza local storage
+    await fetchAllFromSupabase();
+    // Atualiza estados locais para refletir os novos dados
+    setSettings(getSettings());
+    setDataVersion(v => v + 1);
+    setIsSyncing(false);
+  };
 
   useEffect(() => {
     setSettings(getSettings());
@@ -98,10 +116,7 @@ const App: React.FC = () => {
   };
   
   const handleLogout = async () => {
-    // 1. Logout visual imediato (UX melhorada)
     setSession(null); 
-    
-    // 2. Limpeza em background
     try {
         await supabase.auth.signOut();
     } catch (error) {
@@ -109,10 +124,11 @@ const App: React.FC = () => {
     }
   };
 
-  if (loadingSession) {
+  if (loadingSession || isSyncing) {
       return (
-          <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+          <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 gap-4">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-600"></div>
+              {isSyncing && <div className="text-violet-600 font-medium flex items-center gap-2 animate-pulse"><CloudDownload className="w-5 h-5"/> Sincronizando dados...</div>}
           </div>
       );
   }
@@ -127,6 +143,7 @@ const App: React.FC = () => {
       case 'advances': return <AdvancesTab onUpdate={handleDataUpdate} />;
       case 'reports': return <ReportsTab settings={settings} onEdit={handleEditEntry} dataVersion={dataVersion} />;
       case 'settings': return <SettingsTab settings={settings} onSave={handleSettingsUpdate} onLogout={handleLogout} />;
+      case 'expenses': return <ExpensesTab onUpdate={handleDataUpdate} />; // Added ExpensesTab
       default: return null;
     }
   };
@@ -134,7 +151,7 @@ const App: React.FC = () => {
   const NavButton: React.FC<{ tabName: Tab; icon: React.ElementType; label: string }> = ({ tabName, icon: Icon, label }) => (
     <button
       onClick={() => setActiveTab(tabName)}
-      className={`flex flex-col items-center p-2 rounded-xl transition-all w-1/4 ${
+      className={`flex flex-col items-center p-2 rounded-xl transition-all w-1/5 ${
         activeTab === tabName 
           ? 'text-violet-600 bg-violet-50 dark:bg-violet-900/30 dark:text-violet-300 font-bold scale-105' 
           : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'
@@ -152,10 +169,13 @@ const App: React.FC = () => {
       
       <main className="flex-1 p-4 pb-24 max-w-md mx-auto w-full mt-2">{renderTab()}</main>
       
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 px-4 py-3 z-50 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.05)]">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 px-2 py-3 z-50 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.05)]">
         <div className="max-w-md mx-auto flex justify-between items-center">
           <NavButton tabName="home" icon={Home} label="Registro" />
           <NavButton tabName="advances" icon={DollarSign} label="Vales" />
+           <NavButton tabName="expenses" icon={({className}) => (
+             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+           )} label="Despesas" />
           <NavButton tabName="reports" icon={FileBarChart} label="Relatórios" />
           <NavButton tabName="settings" icon={Settings} label="Ajustes" />
         </div>

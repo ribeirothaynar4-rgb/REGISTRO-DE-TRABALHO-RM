@@ -1,40 +1,72 @@
-
-
-
-// FIX: Import ExpenseEntry type.
 import { WorkEntry, AdvanceEntry, UserSettings, WorkStatus, ExpenseEntry } from '../types';
 import { format, subDays } from 'date-fns';
+import { supabase } from './supabaseClient';
 
 const KEYS = {
   WORK_ENTRIES: 'mrt_work_entries',
   ADVANCES: 'mrt_advances',
-  // FIX: Add key for expenses.
   EXPENSES: 'mrt_expenses',
   SETTINGS: 'mrt_settings',
   LAST_NOTIF: 'mrt_last_notification_date'
 };
 
+// --- FUNÇÕES DE SINCRONIZAÇÃO COM SUPABASE (TABELA historico_ia) ---
+
+// Envia dados para o Supabase (Background Sync)
+const syncKeyToSupabase = async (key: string, data: any) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) return; // Só salva se estiver logado
+
+  try {
+    const { error } = await supabase
+      .from('historico_ia')
+      .upsert(
+        { 
+          user_id: session.user.id, 
+          category: key, 
+          data: data,
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: 'user_id, category' }
+      );
+
+    if (error) console.error(`Erro ao sincronizar ${key}:`, error);
+  } catch (err) {
+    console.error("Erro de conexão ao salvar no banco:", err);
+  }
+};
+
+// Baixa todos os dados do Supabase ao iniciar (Load)
+export const fetchAllFromSupabase = async (): Promise<boolean> => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) return false;
+
+  try {
+    const { data, error } = await supabase
+      .from('historico_ia')
+      .select('category, data')
+      .eq('user_id', session.user.id);
+
+    if (error) throw error;
+
+    if (data && data.length > 0) {
+      data.forEach(row => {
+        // Atualiza o LocalStorage com o que veio do banco
+        localStorage.setItem(row.category, JSON.stringify(row.data));
+      });
+      return true;
+    }
+  } catch (err) {
+    console.error("Erro ao baixar dados do Supabase:", err);
+  }
+  return false;
+};
+
+// --- GETTERS (Leitura Local - Rápida) ---
+
 export const getWorkEntries = (): WorkEntry[] => {
   const data = localStorage.getItem(KEYS.WORK_ENTRIES);
   return data ? JSON.parse(data) : [];
-};
-
-export const saveWorkEntry = (entry: WorkEntry) => {
-  const entries = getWorkEntries();
-  const index = entries.findIndex(e => e.id === entry.id);
-  
-  if (index >= 0) {
-    entries[index] = entry;
-  } else {
-    entries.push(entry);
-  }
-  localStorage.setItem(KEYS.WORK_ENTRIES, JSON.stringify(entries));
-};
-
-export const deleteWorkEntry = (id: string) => {
-  const entries = getWorkEntries();
-  const newEntries = entries.filter(e => e.id !== id);
-  localStorage.setItem(KEYS.WORK_ENTRIES, JSON.stringify(newEntries));
 };
 
 export const getAdvances = (): AdvanceEntry[] => {
@@ -42,43 +74,9 @@ export const getAdvances = (): AdvanceEntry[] => {
   return data ? JSON.parse(data) : [];
 };
 
-export const saveAdvance = (advance: AdvanceEntry) => {
-  const advances = getAdvances();
-  const index = advances.findIndex(a => a.id === advance.id);
-  if (index >= 0) {
-    advances[index] = advance;
-  } else {
-    advances.push(advance);
-  }
-  localStorage.setItem(KEYS.ADVANCES, JSON.stringify(advances));
-};
-
-export const deleteAdvance = (id: string) => {
-  const advances = getAdvances().filter(a => a.id !== id);
-  localStorage.setItem(KEYS.ADVANCES, JSON.stringify(advances));
-};
-
-// FIX: Add functions to get, save, and delete expenses.
 export const getExpenses = (): ExpenseEntry[] => {
   const data = localStorage.getItem(KEYS.EXPENSES);
   return data ? JSON.parse(data) : [];
-};
-
-export const saveExpense = (expense: ExpenseEntry) => {
-  const expenses = getExpenses();
-  const index = expenses.findIndex(e => e.id === expense.id);
-  if (index >= 0) {
-    expenses[index] = expense;
-  } else {
-    expenses.push(expense);
-  }
-  localStorage.setItem(KEYS.EXPENSES, JSON.stringify(expenses));
-};
-
-export const deleteExpense = (id: string) => {
-  const expenses = getExpenses();
-  const newExpenses = expenses.filter(e => e.id !== id);
-  localStorage.setItem(KEYS.EXPENSES, JSON.stringify(newExpenses));
 };
 
 export const getSettings = (): UserSettings => {
@@ -95,15 +93,82 @@ export const getSettings = (): UserSettings => {
 
   if (data) {
     const parsed = JSON.parse(data);
-    // Merge defaults to ensure new fields exist for old users
     return { ...defaultSettings, ...parsed };
   }
   
   return defaultSettings;
 };
 
+// --- SETTERS (Escrita Local + Sincronização Nuvem) ---
+
+export const saveWorkEntry = (entry: WorkEntry) => {
+  const entries = getWorkEntries();
+  const index = entries.findIndex(e => e.id === entry.id);
+  
+  if (index >= 0) {
+    entries[index] = entry;
+  } else {
+    entries.push(entry);
+  }
+  
+  // Salva local
+  localStorage.setItem(KEYS.WORK_ENTRIES, JSON.stringify(entries));
+  // Sincroniza nuvem
+  syncKeyToSupabase(KEYS.WORK_ENTRIES, entries);
+};
+
+export const deleteWorkEntry = (id: string) => {
+  const entries = getWorkEntries();
+  const newEntries = entries.filter(e => e.id !== id);
+  
+  localStorage.setItem(KEYS.WORK_ENTRIES, JSON.stringify(newEntries));
+  syncKeyToSupabase(KEYS.WORK_ENTRIES, newEntries);
+};
+
+export const saveAdvance = (advance: AdvanceEntry) => {
+  const advances = getAdvances();
+  const index = advances.findIndex(a => a.id === advance.id);
+  if (index >= 0) {
+    advances[index] = advance;
+  } else {
+    advances.push(advance);
+  }
+  
+  localStorage.setItem(KEYS.ADVANCES, JSON.stringify(advances));
+  syncKeyToSupabase(KEYS.ADVANCES, advances);
+};
+
+export const deleteAdvance = (id: string) => {
+  const advances = getAdvances().filter(a => a.id !== id);
+  
+  localStorage.setItem(KEYS.ADVANCES, JSON.stringify(advances));
+  syncKeyToSupabase(KEYS.ADVANCES, advances);
+};
+
+export const saveExpense = (expense: ExpenseEntry) => {
+  const expenses = getExpenses();
+  const index = expenses.findIndex(e => e.id === expense.id);
+  if (index >= 0) {
+    expenses[index] = expense;
+  } else {
+    expenses.push(expense);
+  }
+  
+  localStorage.setItem(KEYS.EXPENSES, JSON.stringify(expenses));
+  syncKeyToSupabase(KEYS.EXPENSES, expenses);
+};
+
+export const deleteExpense = (id: string) => {
+  const expenses = getExpenses();
+  const newExpenses = expenses.filter(e => e.id !== id);
+  
+  localStorage.setItem(KEYS.EXPENSES, JSON.stringify(newExpenses));
+  syncKeyToSupabase(KEYS.EXPENSES, newExpenses);
+};
+
 export const saveSettings = (settings: UserSettings) => {
   localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
+  syncKeyToSupabase(KEYS.SETTINGS, settings);
 };
 
 // --- Helpers para Notificação ---
@@ -115,18 +180,16 @@ export const getLastNotificationDate = (): string | null => {
     return localStorage.getItem(KEYS.LAST_NOTIF);
 }
 
-
-// --- FUNÇÕES DE BACKUP ---
+// --- FUNÇÕES DE BACKUP (Arquivo Físico) ---
 
 export const exportAllData = (): string => {
   const backupData = {
     workEntries: getWorkEntries(),
     advances: getAdvances(),
-    // FIX: Include expenses in the backup data.
     expenses: getExpenses(),
     settings: getSettings(),
     exportedAt: new Date().toISOString(),
-    appVersion: '1.1' // Updated version
+    appVersion: '1.2'
   };
   return JSON.stringify(backupData);
 };
@@ -141,13 +204,19 @@ export const importAllData = (jsonString: string): boolean => {
 
     localStorage.setItem(KEYS.WORK_ENTRIES, JSON.stringify(data.workEntries));
     localStorage.setItem(KEYS.ADVANCES, JSON.stringify(data.advances));
-    // FIX: Handle expenses during data import for backward compatibility.
+    
     if (data.expenses) {
       localStorage.setItem(KEYS.EXPENSES, JSON.stringify(data.expenses));
     } else {
       localStorage.setItem(KEYS.EXPENSES, JSON.stringify([]));
     }
     localStorage.setItem(KEYS.SETTINGS, JSON.stringify(data.settings));
+
+    // Sincroniza tudo importado para a nuvem
+    syncKeyToSupabase(KEYS.WORK_ENTRIES, data.workEntries);
+    syncKeyToSupabase(KEYS.ADVANCES, data.advances);
+    if(data.expenses) syncKeyToSupabase(KEYS.EXPENSES, data.expenses);
+    syncKeyToSupabase(KEYS.SETTINGS, data.settings);
     
     return true;
   } catch (e) {
@@ -159,11 +228,10 @@ export const importAllData = (jsonString: string): boolean => {
 // --- DADOS DE TESTE ---
 
 export const generateTestData = () => {
-  localStorage.clear(); // Limpa tudo antes
+  localStorage.clear();
   const today = new Date();
   const entries: WorkEntry[] = [];
   const advances: AdvanceEntry[] = [];
-  // FIX: Initialize expenses array for test data.
   const expenses: ExpenseEntry[] = [];
   
   const demoSettings: UserSettings = {
@@ -175,6 +243,8 @@ export const generateTestData = () => {
     notificationEnabled: false,
     notificationTime: '18:00'
   };
+  
+  // Salva e Sincroniza Settings
   saveSettings(demoSettings);
 
   for (let i = 0; i < 45; i++) {
@@ -200,12 +270,16 @@ export const generateTestData = () => {
   advances.push({ id: 'demo_adv_1', date: format(subDays(today, 10), 'yyyy-MM-dd'), amount: 100, note: 'Gasolina' });
   advances.push({ id: 'demo_adv_2', date: format(subDays(today, 5), 'yyyy-MM-dd'), amount: 150, note: 'Almoço equipe' });
 
-  // FIX: Add sample expenses.
   expenses.push({ id: 'demo_exp_1', date: format(subDays(today, 12), 'yyyy-MM-dd'), amount: 80, note: 'Ferramenta nova' });
   expenses.push({ id: 'demo_exp_2', date: format(subDays(today, 3), 'yyyy-MM-dd'), amount: 45.50, note: 'Material para reparo' });
 
+  // Salva no LocalStorage
   localStorage.setItem(KEYS.WORK_ENTRIES, JSON.stringify(entries));
   localStorage.setItem(KEYS.ADVANCES, JSON.stringify(advances));
-  // FIX: Save expenses test data to localStorage.
   localStorage.setItem(KEYS.EXPENSES, JSON.stringify(expenses));
+
+  // Força Sincronização
+  syncKeyToSupabase(KEYS.WORK_ENTRIES, entries);
+  syncKeyToSupabase(KEYS.ADVANCES, advances);
+  syncKeyToSupabase(KEYS.EXPENSES, expenses);
 };
