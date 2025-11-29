@@ -4,14 +4,14 @@ import { saveSettings, exportAllData, importAllData, generateTestData } from '..
 import { Card } from './ui/Card';
 import { User, DollarSign, Briefcase, Download, Upload, Database, AlertTriangle, Wand2, Sun, Moon, Bell, Clock, Code, LogOut } from 'lucide-react';
 import { format } from 'date-fns';
-import { supabase } from '../services/supabaseClient';
 
 interface SettingsTabProps {
   settings: UserSettings;
   onSave: (newSettings: UserSettings) => void;
+  onLogout: () => void;
 }
 
-const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
+const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave, onLogout }) => {
   const [formData, setFormData] = useState<UserSettings>(settings);
   const [showSuccess, setShowSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -65,10 +65,9 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     setTimeout(() => setShowSuccess(false), 3000);
   };
 
-  const handleLogout = async () => {
-    if (confirm("Tem certeza que deseja sair?")) {
-        await supabase.auth.signOut();
-    }
+  const handleLogoutClick = () => {
+    // Ação direta sem confirmação para evitar bloqueios de UI em mobile
+    onLogout();
   };
 
   const handleExport = () => {
@@ -124,9 +123,10 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
             <p className="text-slate-500 dark:text-slate-400">Seus dados e preferências</p>
         </div>
         <button 
-            onClick={handleLogout}
-            className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl hover:bg-rose-100 hover:text-rose-600 transition-colors"
-            title="Sair"
+            type="button"
+            onClick={handleLogoutClick}
+            className="shrink-0 p-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-xl hover:bg-rose-100 hover:text-rose-600 transition-colors cursor-pointer active:scale-95"
+            title="Sair do Aplicativo"
         >
             <LogOut className="w-6 h-6" />
         </button>

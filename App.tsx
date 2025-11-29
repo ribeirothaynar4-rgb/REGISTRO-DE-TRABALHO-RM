@@ -96,6 +96,18 @@ const App: React.FC = () => {
     setDateToEdit(date);
     setActiveTab('home');
   };
+  
+  const handleLogout = async () => {
+    // 1. Logout visual imediato (UX melhorada)
+    setSession(null); 
+    
+    // 2. Limpeza em background
+    try {
+        await supabase.auth.signOut();
+    } catch (error) {
+        console.error("Erro silencioso ao sair:", error);
+    }
+  };
 
   if (loadingSession) {
       return (
@@ -114,7 +126,7 @@ const App: React.FC = () => {
       case 'home': return <HomeTab settings={settings} onUpdate={handleDataUpdate} initialDate={dateToEdit} onClearInitialDate={() => setDateToEdit(null)} />;
       case 'advances': return <AdvancesTab onUpdate={handleDataUpdate} />;
       case 'reports': return <ReportsTab settings={settings} onEdit={handleEditEntry} dataVersion={dataVersion} />;
-      case 'settings': return <SettingsTab settings={settings} onSave={handleSettingsUpdate} />;
+      case 'settings': return <SettingsTab settings={settings} onSave={handleSettingsUpdate} onLogout={handleLogout} />;
       default: return null;
     }
   };
