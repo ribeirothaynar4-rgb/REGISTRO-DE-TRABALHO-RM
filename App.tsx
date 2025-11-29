@@ -6,7 +6,7 @@ import ReportsTab from './components/ReportsTab';
 import SettingsTab from './components/SettingsTab';
 import ExpensesTab from './components/ExpensesTab'; // Added ExpensesTab
 import AuthPage from './components/AuthPage';
-import { getSettings, getLastNotificationDate, setLastNotificationDate, getWorkEntries, fetchAllFromSupabase } from './services/storageService';
+import { getSettings, getLastNotificationDate, setLastNotificationDate, getWorkEntries, fetchAllFromSupabase, clearLocalData } from './services/storageService';
 import { UserSettings, WorkStatus } from './types';
 import { format } from 'date-fns';
 import { supabase } from './services/supabaseClient';
@@ -48,7 +48,7 @@ const App: React.FC = () => {
 
   const syncData = async () => {
     setIsSyncing(true);
-    // Baixa dados do Supabase e atualiza local storage
+    // Baixa dados do Supabase e atualiza local storage (limpa dados antigos antes)
     await fetchAllFromSupabase();
     // Atualiza estados locais para refletir os novos dados
     setSettings(getSettings());
@@ -116,6 +116,10 @@ const App: React.FC = () => {
   };
   
   const handleLogout = async () => {
+    // 1. Limpa dados locais para evitar que o próximo usuário veja dados deste usuário
+    clearLocalData();
+    
+    // 2. Limpa sessão
     setSession(null); 
     try {
         await supabase.auth.signOut();

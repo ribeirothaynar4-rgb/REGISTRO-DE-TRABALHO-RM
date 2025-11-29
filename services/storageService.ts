@@ -10,19 +10,33 @@ const KEYS = {
   LAST_NOTIF: 'mrt_last_notification_date'
 };
 
+// --- FUNÇÕES AUXILIARES ---
+
+export const clearLocalData = () => {
+  localStorage.removeItem(KEYS.WORK_ENTRIES);
+  localStorage.removeItem(KEYS.ADVANCES);
+  localStorage.removeItem(KEYS.EXPENSES);
+  localStorage.removeItem(KEYS.SETTINGS);
+  // Não limpamos LAST_NOTIF necessariamente, mas podemos se quiser resetar o aviso
+};
+
 // --- FUNÇÕES DE SINCRONIZAÇÃO COM SUPABASE (TABELA historico_ia) ---
 
 // Envia dados para o Supabase (Background Sync)
 const syncKeyToSupabase = async (key: string, data: any) => {
+  // 1. Pega o usuário logado ATUAL
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.user) return; // Só salva se estiver logado
+  
+  // Se não tem usuário, não salva na nuvem (apenas local)
+  if (!session?.user) return; 
 
   try {
+    // 2. Faz o Upsert usando o ID do usuário
     const { error } = await supabase
       .from('historico_ia')
       .upsert(
         { 
-          user_id: session.user.id, 
+          user_id: session.user.id, // GARANTE que o dado é deste usuário
           category: key, 
           data: data,
           updated_at: new Date().toISOString()
@@ -42,10 +56,15 @@ export const fetchAllFromSupabase = async (): Promise<boolean> => {
   if (!session?.user) return false;
 
   try {
+    // 1. ANTES de baixar, limpamos o LocalStorage para evitar misturar dados
+    // se o usuário anterior deixou lixo no cache.
+    clearLocalData();
+
+    // 2. Busca apenas os dados do usuário logado
     const { data, error } = await supabase
       .from('historico_ia')
       .select('category, data')
-      .eq('user_id', session.user.id);
+      .eq('user_id', session.user.id); // Filtro crucial
 
     if (error) throw error;
 
@@ -56,10 +75,13 @@ export const fetchAllFromSupabase = async (): Promise<boolean> => {
       });
       return true;
     }
+    // Se não tiver dados no banco (usuário novo), o LocalStorage já foi limpo acima,
+    // então ele começa zerado (correto).
+    return true; 
   } catch (err) {
     console.error("Erro ao baixar dados do Supabase:", err);
+    return false;
   }
-  return false;
 };
 
 // --- GETTERS (Leitura Local - Rápida) ---
