@@ -219,7 +219,8 @@ export const exportAllData = (): string => {
   return JSON.stringify(backupData);
 };
 
-export const importAllData = (jsonString: string): boolean => {
+// Agora é ASYNC para garantir que sobe pro banco antes de dar refresh
+export const importAllData = async (jsonString: string): Promise<boolean> => {
   try {
     const data = JSON.parse(jsonString);
     
@@ -227,6 +228,7 @@ export const importAllData = (jsonString: string): boolean => {
       throw new Error("Arquivo de backup inválido.");
     }
 
+    // 1. Salva Localmente
     localStorage.setItem(KEYS.WORK_ENTRIES, JSON.stringify(data.workEntries));
     localStorage.setItem(KEYS.ADVANCES, JSON.stringify(data.advances));
     
@@ -237,11 +239,18 @@ export const importAllData = (jsonString: string): boolean => {
     }
     localStorage.setItem(KEYS.SETTINGS, JSON.stringify(data.settings));
 
-    // Sincroniza tudo importado para a nuvem
-    syncKeyToSupabase(KEYS.WORK_ENTRIES, data.workEntries);
-    syncKeyToSupabase(KEYS.ADVANCES, data.advances);
-    if(data.expenses) syncKeyToSupabase(KEYS.EXPENSES, data.expenses);
-    syncKeyToSupabase(KEYS.SETTINGS, data.settings);
+    // 2. Aguarda Sincronização com a Nuvem (CRÍTICO)
+    const promises = [
+        syncKeyToSupabase(KEYS.WORK_ENTRIES, data.workEntries),
+        syncKeyToSupabase(KEYS.ADVANCES, data.advances),
+        syncKeyToSupabase(KEYS.SETTINGS, data.settings)
+    ];
+
+    if(data.expenses) {
+        promises.push(syncKeyToSupabase(KEYS.EXPENSES, data.expenses));
+    }
+
+    await Promise.all(promises);
     
     return true;
   } catch (e) {
