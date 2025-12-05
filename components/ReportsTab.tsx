@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { format, startOfMonth, endOfMonth, isSameMonth, parseISO, addMonths, subMonths } from 'date-fns';
+import { format, startOfMonth, endOfMonth, isSameMonth, parseISO, addMonths, subMonths, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, Download, Edit, Trash2, Wallet, TrendingDown, TrendingUp, CalendarSearch } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Edit, Trash2, Wallet, TrendingDown, TrendingUp, CalendarSearch, CalendarRange, Calendar } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -16,6 +16,8 @@ interface ReportsTabProps {
   dataVersion: number; // For re-triggering fetches
 }
 
+type ReportMode = 'month' | 'custom';
+
 const translateStatus = (status: WorkStatus): string => {
   switch (status) {
     case WorkStatus.WORKED: return 'Dia Inteiro';
@@ -28,44 +30,45 @@ const translateStatus = (status: WorkStatus): string => {
 };
 
 const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }) => {
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [reportMode, setReportMode] = useState<ReportMode>('month');
+  
+  // Estado para modo Mês
+  const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
+
+  // Estados para modo Personalizado (Padrão: últimos 30 dias)
+  const [customStartDate, setCustomStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [customEndDate, setCustomEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+
   const [entries, setEntries] = useState<WorkEntry[]>([]);
   const [advances, setAdvances] = useState<AdvanceEntry[]>([]);
 
-  // Carrega dados e aplica lógica de Auto-Jump para o mês com dados
+  // Carrega dados e aplica lógica de Auto-Jump
   useEffect(() => {
     const loadedEntries = getWorkEntries();
     const loadedAdvances = getAdvances();
     setEntries(loadedEntries);
     setAdvances(loadedAdvances);
 
-    // LÓGICA INTELIGENTE:
-    // Se estivermos visualizando o mês atual (padrão) e ele estiver vazio,
-    // mas existirem dados históricos, pular automaticamente para o último registro.
-    // Isso evita que o usuário restaure um backup antigo e ache que "não funcionou" porque a tela está vazia.
-    if (isSameMonth(currentDate, new Date())) {
-        const hasDataThisMonth = loadedEntries.some(e => isSameMonth(parseISO(e.date), currentDate)) || 
-                                 loadedAdvances.some(a => isSameMonth(parseISO(a.date), currentDate));
+    // Auto-Jump apenas se estiver no modo mensal e no mês atual vazio
+    if (reportMode === 'month' && isSameMonth(currentMonthDate, new Date())) {
+        const hasDataThisMonth = loadedEntries.some(e => isSameMonth(parseISO(e.date), currentMonthDate)) || 
+                                 loadedAdvances.some(a => isSameMonth(parseISO(a.date), currentMonthDate));
         
-        // Se mês atual vazio E tem dados gerais
         if (!hasDataThisMonth && (loadedEntries.length > 0 || loadedAdvances.length > 0)) {
-            // Pega todas as datas disponíveis
             const allDates = [
                 ...loadedEntries.map(e => e.date),
                 ...loadedAdvances.map(a => a.date)
-            ].sort().reverse(); // Ordena da mais recente para a mais antiga
+            ].sort().reverse();
 
             if (allDates.length > 0) {
-                // Pula para a data mais recente
                 const latestDate = parseISO(allDates[0]);
-                // Só muda se for mês diferente para evitar loop
-                if (!isSameMonth(latestDate, currentDate)) {
-                    setCurrentDate(latestDate);
+                if (!isSameMonth(latestDate, currentMonthDate)) {
+                    setCurrentMonthDate(latestDate);
                 }
             }
         }
     }
-  }, [dataVersion]); // Executa quando a versão dos dados muda (após sync ou edição)
+  }, [dataVersion]); 
 
   const handleDeleteEntry = (id: string) => {
     if (window.confirm("Excluir este registro?")) {
@@ -74,20 +77,26 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     }
   };
 
-  const { monthlyEntries, monthlyAdvances, stats, periodRange } = useMemo(() => {
-    const filteredEntries = entries.filter(e => isSameMonth(parseISO(e.date), currentDate));
-    const filteredAdvances = advances.filter(a => isSameMonth(parseISO(a.date), currentDate));
+  const { monthlyEntries, monthlyAdvances, stats, periodLabel } = useMemo(() => {
+    let filteredEntries: WorkEntry[] = [];
+    let filteredAdvances: AdvanceEntry[] = [];
+    let periodLabel = '';
 
-    const allItemsSorted = [...filteredEntries, ...filteredAdvances].sort((a, b) => a.date.localeCompare(b.date));
-    let periodRange = '';
-    if (allItemsSorted.length > 0) {
-        const firstDate = parseISO(allItemsSorted[0].date);
-        const lastDate = parseISO(allItemsSorted[allItemsSorted.length - 1].date);
-        if (format(firstDate, 'yyyy-MM-dd') === format(lastDate, 'yyyy-MM-dd')) {
-            periodRange = `Registro de ${format(firstDate, 'dd/MM/yyyy', { locale: ptBR })}`;
-        } else {
-            periodRange = `Período: ${format(firstDate, 'dd/MM/yyyy', { locale: ptBR })} a ${format(lastDate, 'dd/MM/yyyy', { locale: ptBR })}`;
+    if (reportMode === 'month') {
+        filteredEntries = entries.filter(e => isSameMonth(parseISO(e.date), currentMonthDate));
+        filteredAdvances = advances.filter(a => isSameMonth(parseISO(a.date), currentMonthDate));
+        periodLabel = format(currentMonthDate, 'MMMM/yyyy', { locale: ptBR }).toUpperCase();
+    } else {
+        // Modo Customizado
+        const start = startOfDay(parseISO(customStartDate));
+        const end = endOfDay(parseISO(customEndDate));
+        
+        // Validação básica para evitar erro do date-fns se start > end
+        if (start <= end) {
+            filteredEntries = entries.filter(e => isWithinInterval(parseISO(e.date), { start, end }));
+            filteredAdvances = advances.filter(a => isWithinInterval(parseISO(a.date), { start, end }));
         }
+        periodLabel = `${format(start, 'dd/MM/yyyy')} a ${format(end, 'dd/MM/yyyy')}`;
     }
 
     const newStats: MonthlyStats = {
@@ -110,31 +119,31 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     newStats.totalAdvances = filteredAdvances.reduce((acc, curr) => acc + curr.amount, 0);
     newStats.finalTotal = newStats.grossTotal - newStats.totalAdvances;
 
-    return { monthlyEntries: filteredEntries.sort((a,b) => a.date.localeCompare(b.date)), monthlyAdvances: filteredAdvances.sort((a,b) => a.date.localeCompare(b.date)), stats: newStats, periodRange };
-  }, [currentDate, entries, advances]);
+    return { 
+        monthlyEntries: filteredEntries.sort((a,b) => a.date.localeCompare(b.date)), 
+        monthlyAdvances: filteredAdvances.sort((a,b) => a.date.localeCompare(b.date)), 
+        stats: newStats, 
+        periodLabel 
+    };
+  }, [currentMonthDate, customStartDate, customEndDate, reportMode, entries, advances]);
 
   const generatePDF = () => {
     const doc = new jsPDF();
     doc.setTextColor(30, 41, 59); 
-    const monthStr = format(currentDate, 'MMMM/yyyy', { locale: ptBR });
-    doc.setFontSize(16);
-    doc.text(`Relatório de Serviços - ${monthStr.toUpperCase()}`, 14, 20);
     
-    doc.setFontSize(10);
+    doc.setFontSize(16);
+    doc.text(`Relatório de Serviços`, 14, 20);
+    
+    doc.setFontSize(11);
     doc.setTextColor(100);
-    const hasPeriod = !!periodRange;
-    const yOffset = hasPeriod ? 8 : 0;
-
-    if (hasPeriod) {
-        doc.text(periodRange, 14, 26);
-    }
+    doc.text(`Período: ${periodLabel}`, 14, 26);
 
     doc.setTextColor(0);
     doc.setFontSize(12);
-    if(settings.workerName) doc.text(`Prestador: ${settings.workerName}`, 14, 30 + yOffset);
-    if(settings.employerName) doc.text(`Cliente: ${settings.employerName}`, 14, 36 + yOffset);
+    if(settings.workerName) doc.text(`Prestador: ${settings.workerName}`, 14, 34);
+    if(settings.employerName) doc.text(`Cliente: ${settings.employerName}`, 14, 40);
     
-    let finalY = 45 + yOffset;
+    let finalY = 48;
 
     autoTable(doc, {
         startY: finalY, head: [['Dia', 'Descrição', 'Valor']],
@@ -154,12 +163,12 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     finalY = (doc as any).lastAutoTable.finalY + 10;
     
     if (monthlyAdvances.length > 0) {
-        autoTable(doc, { startY: finalY, head: [['Dia', 'Adiantamento', 'Valor']], body: monthlyAdvances.map(a => [format(parseISO(a.date), 'dd/MM'), a.note || 'Vale', `- R$ ${a.amount.toFixed(2)}`]), headStyles: { fillColor: [225, 29, 72] } }); // Rose for expenses
+        autoTable(doc, { startY: finalY, head: [['Dia', 'Adiantamento', 'Valor']], body: monthlyAdvances.map(a => [format(parseISO(a.date), 'dd/MM'), a.note || 'Vale', `- R$ ${a.amount.toFixed(2)}`]), headStyles: { fillColor: [225, 29, 72] } }); 
         finalY = (doc as any).lastAutoTable.finalY + 10;
     }
     
     doc.setFontSize(12);
-    doc.text(`Resumo do Período`, 14, finalY);
+    doc.text(`Resumo Financeiro`, 14, finalY);
     finalY += 7;
 
     autoTable(doc, {
@@ -190,8 +199,14 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
     doc.setTextColor(0);
-    doc.text(`VALOR LÍQUIDO A RECEBER: R$ ${finalTotalForPDF.toFixed(2)}`, 14, finalY);
-    doc.save(`Relatorio_${format(currentDate, 'MM-yyyy')}.pdf`);
+    doc.text(`LÍQUIDO A RECEBER: R$ ${finalTotalForPDF.toFixed(2)}`, 14, finalY);
+    
+    // Nome do arquivo seguro
+    const fileName = reportMode === 'month' 
+        ? `Relatorio_${format(currentMonthDate, 'MM-yyyy')}.pdf`
+        : `Relatorio_${customStartDate}_ate_${customEndDate}.pdf`;
+
+    doc.save(fileName);
   };
   
   const allItems = useMemo(() => [
@@ -199,31 +214,82 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         ...monthlyAdvances.map(i => ({...i, itemType: 'advance'})),
     ].sort((a,b) => a.date.localeCompare(b.date)), [monthlyEntries, monthlyAdvances]);
 
-  // Função auxiliar para ir ao último registro
   const goToLatest = () => {
     const allDates = [...entries.map(e => e.date), ...advances.map(a => a.date)].sort().reverse();
     if (allDates.length > 0) {
-        setCurrentDate(parseISO(allDates[0]));
+        setCurrentMonthDate(parseISO(allDates[0]));
     }
   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-20">
-      <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
-        <button onClick={() => setCurrentDate(prev => subMonths(prev, 1))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-violet-600"><ChevronLeft className="w-6 h-6" /></button>
-        <div className="text-center">
-            <h2 className="text-lg font-bold text-slate-800 dark:text-white capitalize">{format(currentDate, 'MMMM', { locale: ptBR })}</h2>
-            <p className="text-xs text-slate-500 font-medium">{format(currentDate, 'yyyy')}</p>
-        </div>
-        <button onClick={() => setCurrentDate(prev => addMonths(prev, 1))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-violet-600"><ChevronRight className="w-6 h-6" /></button>
+      
+      {/* SELETOR DE MODO */}
+      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex">
+        <button 
+            onClick={() => setReportMode('month')}
+            className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+                reportMode === 'month' 
+                ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' 
+                : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+        >
+            <Calendar className="w-4 h-4" />
+            Por Mês
+        </button>
+        <button 
+            onClick={() => setReportMode('custom')}
+            className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+                reportMode === 'custom' 
+                ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' 
+                : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+        >
+            <CalendarRange className="w-4 h-4" />
+            Personalizado
+        </button>
       </div>
 
-      {periodRange && (
-        <p className="text-center text-xs font-medium text-slate-400 dark:text-slate-500 -mt-3 bg-slate-100 dark:bg-slate-900 py-1 px-3 rounded-full mx-auto w-max">
-          {periodRange}
-        </p>
+      {/* CONTROLES DE DATA */}
+      {reportMode === 'month' ? (
+        <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 animate-in slide-in-from-left-2">
+            <button onClick={() => setCurrentMonthDate(prev => subMonths(prev, 1))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-violet-600"><ChevronLeft className="w-6 h-6" /></button>
+            <div className="text-center">
+                <h2 className="text-lg font-bold text-slate-800 dark:text-white capitalize">{format(currentMonthDate, 'MMMM', { locale: ptBR })}</h2>
+                <p className="text-xs text-slate-500 font-medium">{format(currentMonthDate, 'yyyy')}</p>
+            </div>
+            <button onClick={() => setCurrentMonthDate(prev => addMonths(prev, 1))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-violet-600"><ChevronRight className="w-6 h-6" /></button>
+        </div>
+      ) : (
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 animate-in slide-in-from-right-2">
+            <div className="flex items-center gap-2 mb-3">
+                <CalendarRange className="w-5 h-5 text-violet-600" />
+                <span className="font-bold text-slate-700 dark:text-slate-300 text-sm">Selecione o Intervalo</span>
+            </div>
+            <div className="flex gap-3">
+                <div className="flex-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">De</label>
+                    <input 
+                        type="date" 
+                        value={customStartDate} 
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="w-full p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-700 dark:text-white"
+                    />
+                </div>
+                <div className="flex-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Até</label>
+                    <input 
+                        type="date" 
+                        value={customEndDate} 
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="w-full p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-700 dark:text-white"
+                    />
+                </div>
+            </div>
+        </div>
       )}
 
+      {/* CARDS DE TOTAIS */}
       <div className="grid grid-cols-2 gap-3">
           {/* Ganho Bruto */}
           <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-800 relative overflow-hidden">
@@ -244,7 +310,9 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
              <div className="absolute -right-6 -top-6 opacity-20 rounded-full bg-white w-24 h-24 blur-xl"></div>
              <div className="flex justify-between items-center relative z-10">
                 <div>
-                    <p className="text-xs font-bold text-indigo-100 uppercase tracking-wider mb-1">Valor Líquido a Receber</p>
+                    <p className="text-xs font-bold text-indigo-100 uppercase tracking-wider mb-1">
+                        Líquido ({reportMode === 'month' ? 'Mensal' : 'Período'})
+                    </p>
                     <p className="text-3xl font-extrabold tracking-tight">R$ {stats.finalTotal.toFixed(2)}</p>
                 </div>
                 <div className="bg-white/20 p-3 rounded-full backdrop-blur-sm">
@@ -259,19 +327,19 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
       </div>
 
       <div className="space-y-3">
-        <h3 className="text-sm font-bold text-slate-500 uppercase ml-2">Histórico Detalhado</h3>
+        <h3 className="text-sm font-bold text-slate-500 uppercase ml-2">Histórico do Período</h3>
         
         {/* Mensagem amigável se estiver vazio */}
         {allItems.length === 0 && (
             <div className="text-center py-8 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
                 <CalendarSearch className="w-10 h-10 mx-auto text-slate-300 mb-2" />
-                <p className="text-slate-400 mb-2 text-sm font-medium">Nenhum registro neste mês.</p>
-                { (entries.length > 0 || advances.length > 0) && (
+                <p className="text-slate-400 mb-2 text-sm font-medium">Nenhum registro encontrado.</p>
+                { reportMode === 'month' && (entries.length > 0 || advances.length > 0) && (
                     <button 
                         onClick={goToLatest} 
                         className="text-violet-600 bg-violet-50 dark:bg-violet-900/30 px-4 py-2 rounded-lg text-sm font-bold hover:bg-violet-100 transition-colors"
                     >
-                        Ver registros mais recentes
+                        Ir para registros recentes
                     </button>
                 )}
             </div>
