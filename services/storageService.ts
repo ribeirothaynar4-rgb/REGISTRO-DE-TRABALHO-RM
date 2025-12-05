@@ -56,30 +56,33 @@ export const fetchAllFromSupabase = async (): Promise<boolean> => {
   if (!session?.user) return false;
 
   try {
-    // 1. ANTES de baixar, limpamos o LocalStorage para evitar misturar dados
-    // se o usuário anterior deixou lixo no cache.
-    clearLocalData();
-
-    // 2. Busca apenas os dados do usuário logado
+    // CORREÇÃO CRÍTICA:
+    // Não limpamos os dados locais ANTES de baixar.
+    // Primeiro baixamos. Se der erro (sem internet), mantemos os dados locais do usuário.
+    
     const { data, error } = await supabase
       .from('historico_ia')
       .select('category, data')
-      .eq('user_id', session.user.id); // Filtro crucial
+      .eq('user_id', session.user.id);
 
     if (error) throw error;
 
     if (data && data.length > 0) {
+      // SUCESSO: O servidor respondeu com dados.
+      // Agora é seguro atualizar o LocalStorage.
       data.forEach(row => {
-        // Atualiza o LocalStorage com o que veio do banco
         localStorage.setItem(row.category, JSON.stringify(row.data));
       });
       return true;
     }
-    // Se não tiver dados no banco (usuário novo), o LocalStorage já foi limpo acima,
-    // então ele começa zerado (correto).
+    
+    // Se chegou aqui, conectou mas não tem dados no servidor (usuário novo).
+    // Mantemos o que está local ou o app inicia zerado naturalmente.
     return true; 
   } catch (err) {
-    console.error("Erro ao baixar dados do Supabase:", err);
+    console.error("Erro ao baixar dados do Supabase (Usando cache local):", err);
+    // Retornamos false, mas NÃO limpamos os dados. 
+    // O usuário verá os dados que já estavam no celular (Offline Mode).
     return false;
   }
 };
