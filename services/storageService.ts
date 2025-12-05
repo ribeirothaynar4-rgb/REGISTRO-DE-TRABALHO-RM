@@ -1,3 +1,4 @@
+
 import { WorkEntry, AdvanceEntry, UserSettings, WorkStatus, ExpenseEntry } from '../types';
 import { format, subDays } from 'date-fns';
 import { supabase } from './supabaseClient';
@@ -22,13 +23,13 @@ export const clearLocalData = () => {
 
 // --- FUNÇÕES DE SINCRONIZAÇÃO COM SUPABASE (TABELA historico_ia) ---
 
-// Envia dados para o Supabase (Background Sync)
-const syncKeyToSupabase = async (key: string, data: any) => {
+// Envia dados para o Supabase (Background Sync) - Retorna TRUE se salvou ok
+const syncKeyToSupabase = async (key: string, data: any): Promise<boolean> => {
   // 1. Pega o usuário logado ATUAL
   const { data: { session } } = await supabase.auth.getSession();
   
   // Se não tem usuário, não salva na nuvem (apenas local)
-  if (!session?.user) return; 
+  if (!session?.user) return false; 
 
   try {
     // 2. Faz o Upsert usando o ID do usuário
@@ -44,9 +45,14 @@ const syncKeyToSupabase = async (key: string, data: any) => {
         { onConflict: 'user_id, category' }
       );
 
-    if (error) console.error(`Erro ao sincronizar ${key}:`, error);
+    if (error) {
+        console.error(`Erro ao sincronizar ${key}:`, error);
+        return false;
+    }
+    return true;
   } catch (err) {
     console.error("Erro de conexão ao salvar no banco:", err);
+    return false;
   }
 };
 
@@ -71,7 +77,10 @@ export const fetchAllFromSupabase = async (): Promise<boolean> => {
       // SUCESSO: O servidor respondeu com dados.
       // Agora é seguro atualizar o LocalStorage.
       data.forEach(row => {
-        localStorage.setItem(row.category, JSON.stringify(row.data));
+        // Verifica se o dado é válido antes de salvar
+        if (row.data) {
+             localStorage.setItem(row.category, JSON.stringify(row.data));
+        }
       });
       return true;
     }
@@ -88,24 +97,45 @@ export const fetchAllFromSupabase = async (): Promise<boolean> => {
 };
 
 // --- GETTERS (Leitura Local - Rápida) ---
+// Adicionado try-catch para proteger contra dados corrompidos
 
 export const getWorkEntries = (): WorkEntry[] => {
-  const data = localStorage.getItem(KEYS.WORK_ENTRIES);
-  return data ? JSON.parse(data) : [];
+  try {
+    const data = localStorage.getItem(KEYS.WORK_ENTRIES);
+    if (!data) return [];
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.error("Erro ao ler registros:", e);
+    return [];
+  }
 };
 
 export const getAdvances = (): AdvanceEntry[] => {
-  const data = localStorage.getItem(KEYS.ADVANCES);
-  return data ? JSON.parse(data) : [];
+  try {
+    const data = localStorage.getItem(KEYS.ADVANCES);
+    if (!data) return [];
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.error("Erro ao ler vales:", e);
+    return [];
+  }
 };
 
 export const getExpenses = (): ExpenseEntry[] => {
-  const data = localStorage.getItem(KEYS.EXPENSES);
-  return data ? JSON.parse(data) : [];
+  try {
+    const data = localStorage.getItem(KEYS.EXPENSES);
+    if (!data) return [];
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.error("Erro ao ler despesas:", e);
+    return [];
+  }
 };
 
 export const getSettings = (): UserSettings => {
-  const data = localStorage.getItem(KEYS.SETTINGS);
   const defaultSettings: UserSettings = {
     dailyRate: 200,
     workerName: '',
@@ -116,9 +146,14 @@ export const getSettings = (): UserSettings => {
     notificationTime: '18:00'
   };
 
-  if (data) {
-    const parsed = JSON.parse(data);
-    return { ...defaultSettings, ...parsed };
+  try {
+    const data = localStorage.getItem(KEYS.SETTINGS);
+    if (data) {
+        const parsed = JSON.parse(data);
+        return { ...defaultSettings, ...parsed };
+    }
+  } catch (e) {
+    console.error("Erro ao ler configurações:", e);
   }
   
   return defaultSettings;
@@ -251,6 +286,7 @@ export const importAllData = async (jsonString: string): Promise<boolean> => {
     }
 
     await Promise.all(promises);
+    // Mesmo que o sync falhe (retorne false), o dado está local, então retornamos sucesso.
     
     return true;
   } catch (e) {

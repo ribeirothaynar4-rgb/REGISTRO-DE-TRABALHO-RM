@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { format, startOfMonth, endOfMonth, isSameMonth, parseISO, addMonths, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, Download, Edit, Trash2, Wallet, TrendingDown, TrendingUp } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Edit, Trash2, Wallet, TrendingDown, TrendingUp, CalendarSearch } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -32,10 +32,40 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
   const [entries, setEntries] = useState<WorkEntry[]>([]);
   const [advances, setAdvances] = useState<AdvanceEntry[]>([]);
 
+  // Carrega dados e aplica lógica de Auto-Jump para o mês com dados
   useEffect(() => {
-    setEntries(getWorkEntries());
-    setAdvances(getAdvances());
-  }, [currentDate, dataVersion]);
+    const loadedEntries = getWorkEntries();
+    const loadedAdvances = getAdvances();
+    setEntries(loadedEntries);
+    setAdvances(loadedAdvances);
+
+    // LÓGICA INTELIGENTE:
+    // Se estivermos visualizando o mês atual (padrão) e ele estiver vazio,
+    // mas existirem dados históricos, pular automaticamente para o último registro.
+    // Isso evita que o usuário restaure um backup antigo e ache que "não funcionou" porque a tela está vazia.
+    if (isSameMonth(currentDate, new Date())) {
+        const hasDataThisMonth = loadedEntries.some(e => isSameMonth(parseISO(e.date), currentDate)) || 
+                                 loadedAdvances.some(a => isSameMonth(parseISO(a.date), currentDate));
+        
+        // Se mês atual vazio E tem dados gerais
+        if (!hasDataThisMonth && (loadedEntries.length > 0 || loadedAdvances.length > 0)) {
+            // Pega todas as datas disponíveis
+            const allDates = [
+                ...loadedEntries.map(e => e.date),
+                ...loadedAdvances.map(a => a.date)
+            ].sort().reverse(); // Ordena da mais recente para a mais antiga
+
+            if (allDates.length > 0) {
+                // Pula para a data mais recente
+                const latestDate = parseISO(allDates[0]);
+                // Só muda se for mês diferente para evitar loop
+                if (!isSameMonth(latestDate, currentDate)) {
+                    setCurrentDate(latestDate);
+                }
+            }
+        }
+    }
+  }, [dataVersion]); // Executa quando a versão dos dados muda (após sync ou edição)
 
   const handleDeleteEntry = (id: string) => {
     if (window.confirm("Excluir este registro?")) {
@@ -85,7 +115,6 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
 
   const generatePDF = () => {
     const doc = new jsPDF();
-    // Cores mais profissionais no PDF também
     doc.setTextColor(30, 41, 59); 
     const monthStr = format(currentDate, 'MMMM/yyyy', { locale: ptBR });
     doc.setFontSize(16);
@@ -170,6 +199,14 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         ...monthlyAdvances.map(i => ({...i, itemType: 'advance'})),
     ].sort((a,b) => a.date.localeCompare(b.date)), [monthlyEntries, monthlyAdvances]);
 
+  // Função auxiliar para ir ao último registro
+  const goToLatest = () => {
+    const allDates = [...entries.map(e => e.date), ...advances.map(a => a.date)].sort().reverse();
+    if (allDates.length > 0) {
+        setCurrentDate(parseISO(allDates[0]));
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-20">
       <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
@@ -223,6 +260,23 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
 
       <div className="space-y-3">
         <h3 className="text-sm font-bold text-slate-500 uppercase ml-2">Histórico Detalhado</h3>
+        
+        {/* Mensagem amigável se estiver vazio */}
+        {allItems.length === 0 && (
+            <div className="text-center py-8 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
+                <CalendarSearch className="w-10 h-10 mx-auto text-slate-300 mb-2" />
+                <p className="text-slate-400 mb-2 text-sm font-medium">Nenhum registro neste mês.</p>
+                { (entries.length > 0 || advances.length > 0) && (
+                    <button 
+                        onClick={goToLatest} 
+                        className="text-violet-600 bg-violet-50 dark:bg-violet-900/30 px-4 py-2 rounded-lg text-sm font-bold hover:bg-violet-100 transition-colors"
+                    >
+                        Ver registros mais recentes
+                    </button>
+                )}
+            </div>
+        )}
+
         {allItems.map(item => {
             if (item.itemType === 'work') {
                 let val = 0;
