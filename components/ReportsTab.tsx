@@ -141,7 +141,8 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     doc.setTextColor(0);
     doc.setFontSize(12);
     if(settings.workerName) doc.text(`Prestador: ${settings.workerName}`, 14, 34);
-    if(settings.employerName) doc.text(`Cliente: ${settings.employerName}`, 14, 40);
+    // ALTERADO AQUI: De 'Cliente' para 'Patrão'
+    if(settings.employerName) doc.text(`Patrão: ${settings.employerName}`, 14, 40);
     
     let finalY = 48;
 
