@@ -1,6 +1,7 @@
 
+
 import { WorkEntry, AdvanceEntry, UserSettings, WorkStatus, ExpenseEntry } from '../types';
-import { format, subDays } from 'date-fns';
+import { format, subDays, startOfMonth } from 'date-fns';
 import { supabase } from './supabaseClient';
 
 const KEYS = {
@@ -143,7 +144,8 @@ export const getSettings = (): UserSettings => {
     currency: 'BRL',
     theme: 'light',
     notificationEnabled: false,
-    notificationTime: '18:00'
+    notificationTime: '18:00',
+    billingCycleStartDate: format(startOfMonth(new Date()), 'yyyy-MM-dd') // Padrão: dia 1 do mês atual
   };
 
   try {
@@ -199,10 +201,11 @@ export const saveAdvance = (advance: AdvanceEntry) => {
 };
 
 export const deleteAdvance = (id: string) => {
-  const advances = getAdvances().filter(a => a.id !== id);
+  const allAdvances = getAdvances();
+  const newAdvances = allAdvances.filter(a => a.id !== id);
   
-  localStorage.setItem(KEYS.ADVANCES, JSON.stringify(advances));
-  syncKeyToSupabase(KEYS.ADVANCES, advances);
+  localStorage.setItem(KEYS.ADVANCES, JSON.stringify(newAdvances));
+  syncKeyToSupabase(KEYS.ADVANCES, newAdvances);
 };
 
 export const saveExpense = (expense: ExpenseEntry) => {
@@ -311,7 +314,8 @@ export const generateTestData = () => {
     currency: 'BRL',
     theme: 'light',
     notificationEnabled: false,
-    notificationTime: '18:00'
+    notificationTime: '18:00',
+    billingCycleStartDate: format(startOfMonth(today), 'yyyy-MM-dd')
   };
   
   // Salva e Sincroniza Settings

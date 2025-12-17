@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { Plus, DollarSign, Trash2, Edit, X, ArrowDown } from 'lucide-react';
 import { format } from 'date-fns';
@@ -61,13 +62,19 @@ const AdvancesTab: React.FC<AdvancesTabProps> = ({ onUpdate }) => {
   };
 
   const handleDelete = (id: string) => {
-    if (confirm("Deseja realmente apagar este adiantamento?")) {
+    if (window.confirm("Deseja realmente apagar este adiantamento?")) {
+        // 1. Atualiza visualmente ANTES de salvar (mais rápido)
+        setAdvances(prev => prev.filter(item => item.id !== id));
+        
+        // 2. Apaga do banco de dados/memória
         deleteAdvance(id);
+
         if (editingId === id) {
             setEditingId(null);
             setShowForm(false);
         }
-        loadData();
+        
+        // 3. Notifica o app para atualizar saldos
         onUpdate();
     }
   };
@@ -90,7 +97,7 @@ const AdvancesTab: React.FC<AdvancesTabProps> = ({ onUpdate }) => {
   const totalAdvances = advances.reduce((acc, curr) => acc + curr.amount, 0);
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-24">
       <header className="flex justify-between items-end">
         <div>
             <h1 className="text-3xl font-extrabold text-slate-800 dark:text-white">Adiantamentos</h1>
@@ -208,17 +215,24 @@ const AdvancesTab: React.FC<AdvancesTabProps> = ({ onUpdate }) => {
                     </div>
                 </div>
                 
-                <div className="flex items-center gap-1">
+                {/* Aumentado o GAP para 3 para evitar toques acidentais */}
+                <div className="flex items-center gap-3">
                     <button 
-                        onClick={() => handleEdit(item)}
-                        className="p-2 text-slate-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/30 rounded-xl transition-colors"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleEdit(item);
+                        }}
+                        className="p-3 text-slate-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/30 rounded-xl transition-colors"
                         title="Editar"
                     >
                         <Edit className="w-5 h-5" />
                     </button>
                     <button 
-                        onClick={() => handleDelete(item.id)}
-                        className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-xl transition-colors"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(item.id);
+                        }}
+                        className="p-3 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-xl transition-colors"
                         title="Excluir"
                     >
                         <Trash2 className="w-5 h-5" />

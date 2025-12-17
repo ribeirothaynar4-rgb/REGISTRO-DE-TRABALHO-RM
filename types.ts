@@ -41,6 +41,7 @@ export interface UserSettings {
   theme: 'light' | 'dark';
   notificationEnabled: boolean;
   notificationTime: string; // Format "HH:mm"
+  billingCycleStartDate?: string; // Data de início do ciclo atual (reset do saldo)
 }
 
 export interface MonthlyStats {

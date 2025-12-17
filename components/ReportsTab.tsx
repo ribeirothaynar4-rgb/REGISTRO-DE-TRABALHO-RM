@@ -1,8 +1,9 @@
 
+
 import React, { useState, useEffect, useMemo } from 'react';
-import { format, startOfMonth, endOfMonth, isSameMonth, parseISO, addMonths, subMonths, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
+import { format, startOfMonth, endOfMonth, isSameMonth, parseISO, addMonths, subMonths, isWithinInterval, startOfDay, endOfDay, isAfter, isBefore } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, Download, Edit, Trash2, Wallet, TrendingDown, TrendingUp, CalendarSearch, CalendarRange, Calendar } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Edit, Trash2, Wallet, TrendingDown, TrendingUp, CalendarSearch, CalendarRange, Calendar, RotateCcw } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -16,7 +17,7 @@ interface ReportsTabProps {
   dataVersion: number; // For re-triggering fetches
 }
 
-type ReportMode = 'month' | 'custom';
+type ReportMode = 'month' | 'custom' | 'cycle';
 
 const translateStatus = (status: WorkStatus): string => {
   switch (status) {
@@ -30,7 +31,8 @@ const translateStatus = (status: WorkStatus): string => {
 };
 
 const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }) => {
-  const [reportMode, setReportMode] = useState<ReportMode>('month');
+  // Padrão: Se tiver data de ciclo definida, começa no modo Ciclo
+  const [reportMode, setReportMode] = useState<ReportMode>('cycle');
   
   // Estado para modo Mês
   const [currentMonthDate, setCurrentMonthDate] = useState(new Date());
@@ -86,6 +88,16 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         filteredEntries = entries.filter(e => isSameMonth(parseISO(e.date), currentMonthDate));
         filteredAdvances = advances.filter(a => isSameMonth(parseISO(a.date), currentMonthDate));
         periodLabel = format(currentMonthDate, 'MMMM/yyyy', { locale: ptBR }).toUpperCase();
+    } else if (reportMode === 'cycle') {
+        // MODO CICLO: Filtra da data de início definida nas configs até hoje
+        const cycleStart = settings.billingCycleStartDate || format(startOfMonth(new Date()), 'yyyy-MM-dd');
+        
+        // Filtra >= cycleStart
+        filteredEntries = entries.filter(e => e.date >= cycleStart);
+        filteredAdvances = advances.filter(a => a.date >= cycleStart);
+
+        periodLabel = `CICLO ATUAL (Desde ${format(parseISO(cycleStart), 'dd/MM/yyyy')})`;
+
     } else {
         // Modo Customizado
         const start = startOfDay(parseISO(customStartDate));
@@ -125,7 +137,7 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         stats: newStats, 
         periodLabel 
     };
-  }, [currentMonthDate, customStartDate, customEndDate, reportMode, entries, advances]);
+  }, [currentMonthDate, customStartDate, customEndDate, reportMode, entries, advances, settings.billingCycleStartDate]);
 
   const generatePDF = () => {
     const doc = new jsPDF();
@@ -203,9 +215,7 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     doc.text(`LÍQUIDO A RECEBER: R$ ${finalTotalForPDF.toFixed(2)}`, 14, finalY);
     
     // Nome do arquivo seguro
-    const fileName = reportMode === 'month' 
-        ? `Relatorio_${format(currentMonthDate, 'MM-yyyy')}.pdf`
-        : `Relatorio_${customStartDate}_ate_${customEndDate}.pdf`;
+    const fileName = `Relatorio_Servico.pdf`;
 
     doc.save(fileName);
   };
@@ -226,10 +236,21 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     <div className="space-y-6 animate-in fade-in duration-500 pb-20">
       
       {/* SELETOR DE MODO */}
-      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex">
+      <div className="bg-white dark:bg-slate-900 p-1.5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex overflow-x-auto">
+        <button 
+            onClick={() => setReportMode('cycle')}
+            className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all whitespace-nowrap ${
+                reportMode === 'cycle' 
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' 
+                : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+        >
+            <RotateCcw className="w-4 h-4" />
+            Ciclo Atual
+        </button>
         <button 
             onClick={() => setReportMode('month')}
-            className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all whitespace-nowrap ${
                 reportMode === 'month' 
                 ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' 
                 : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'
@@ -240,14 +261,14 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         </button>
         <button 
             onClick={() => setReportMode('custom')}
-            className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all whitespace-nowrap ${
                 reportMode === 'custom' 
                 ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' 
                 : 'text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'
             }`}
         >
             <CalendarRange className="w-4 h-4" />
-            Personalizado
+            Busca
         </button>
       </div>
 
@@ -260,6 +281,17 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
                 <p className="text-xs text-slate-500 font-medium">{format(currentMonthDate, 'yyyy')}</p>
             </div>
             <button onClick={() => setCurrentMonthDate(prev => addMonths(prev, 1))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full text-violet-600"><ChevronRight className="w-6 h-6" /></button>
+        </div>
+      ) : reportMode === 'cycle' ? (
+        <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl shadow-sm border border-emerald-100 dark:border-emerald-800 animate-in slide-in-from-top-2">
+            <div className="flex items-center gap-2 mb-1 text-emerald-700 dark:text-emerald-400">
+                <RotateCcw className="w-5 h-5" />
+                <span className="font-bold text-sm">Mostrando Saldo Atual</span>
+            </div>
+            <p className="text-xs text-emerald-600/80 dark:text-emerald-500">
+                Calculando desde <strong>{format(parseISO(settings.billingCycleStartDate || format(new Date(), 'yyyy-MM-dd')), 'dd/MM/yyyy')}</strong>
+            </p>
+            <p className="text-[10px] mt-1 text-slate-400">Para zerar o saldo, vá em Ajustes > Ciclo.</p>
         </div>
       ) : (
         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 animate-in slide-in-from-right-2">
@@ -312,7 +344,7 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
              <div className="flex justify-between items-center relative z-10">
                 <div>
                     <p className="text-xs font-bold text-indigo-100 uppercase tracking-wider mb-1">
-                        Líquido ({reportMode === 'month' ? 'Mensal' : 'Período'})
+                        Líquido ({reportMode === 'cycle' ? 'A Receber' : 'Período'})
                     </p>
                     <p className="text-3xl font-extrabold tracking-tight">R$ {stats.finalTotal.toFixed(2)}</p>
                 </div>
@@ -334,7 +366,7 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         {allItems.length === 0 && (
             <div className="text-center py-8 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
                 <CalendarSearch className="w-10 h-10 mx-auto text-slate-300 mb-2" />
-                <p className="text-slate-400 mb-2 text-sm font-medium">Nenhum registro encontrado.</p>
+                <p className="text-slate-400 mb-2 text-sm font-medium">Nenhum registro neste intervalo.</p>
                 { reportMode === 'month' && (entries.length > 0 || advances.length > 0) && (
                     <button 
                         onClick={goToLatest} 

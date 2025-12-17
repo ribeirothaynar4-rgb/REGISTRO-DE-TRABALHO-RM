@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { UserSettings } from '../types';
 import { saveSettings, exportAllData, importAllData, generateTestData } from '../services/storageService';
 import { Card } from './ui/Card';
-import { User, DollarSign, Briefcase, Download, Upload, Database, AlertTriangle, Wand2, Sun, Moon, Bell, Clock, Code, LogOut, Loader2 } from 'lucide-react';
+import { User, DollarSign, Briefcase, Download, Upload, Database, AlertTriangle, Wand2, Sun, Moon, Bell, Clock, Code, LogOut, Loader2, CalendarCheck, RotateCcw } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface SettingsTabProps {
@@ -70,6 +70,18 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave, onLogout })
     // Ação direta sem confirmação para evitar bloqueios de UI em mobile
     onLogout();
   };
+
+  const handleResetCycle = () => {
+     if(confirm("Deseja iniciar um novo ciclo de pagamentos a partir de HOJE? \n\nO saldo na aba Relatórios começará a ser contado desta data em diante.")) {
+         const todayStr = format(new Date(), 'yyyy-MM-dd');
+         handleChange('billingCycleStartDate', todayStr);
+         // Auto-save para garantir
+         const newSettings = { ...formData, billingCycleStartDate: todayStr };
+         saveSettings(newSettings);
+         onSave(newSettings);
+         alert(`Novo ciclo iniciado em ${format(new Date(), 'dd/MM/yyyy')}!`);
+     }
+  }
 
   const handleExport = () => {
     const data = exportAllData();
@@ -141,6 +153,38 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave, onLogout })
             <LogOut className="w-6 h-6" />
         </button>
       </header>
+
+      {/* NOVO CARD: FECHAMENTO DE CICLO */}
+      <Card title="Ciclo de Pagamento / Fechamento" className="border-emerald-200 dark:border-emerald-900">
+        <div className="flex items-start space-x-4">
+            <div className="bg-emerald-100 dark:bg-emerald-900 p-2.5 rounded-full">
+                <RotateCcw className="w-6 h-6 text-emerald-600 dark:text-emerald-300" />
+            </div>
+            <div className="flex-1">
+                <p className="text-sm text-slate-600 dark:text-slate-300 mb-3">
+                   Use isto quando receber um pagamento para <strong>zerar o saldo</strong> e começar a contar de novo, sem apagar o histórico.
+                </p>
+                
+                <div className="mb-4">
+                   <label className="block text-xs font-bold text-emerald-700 dark:text-emerald-400 mb-1 uppercase">Início do Ciclo Atual</label>
+                   <input 
+                      type="date"
+                      value={formData.billingCycleStartDate || ''}
+                      onChange={(e) => handleChange('billingCycleStartDate', e.target.value)}
+                      className="w-full p-2 border-2 border-emerald-100 dark:border-emerald-800 rounded-xl bg-white dark:bg-slate-950 font-bold text-slate-800 dark:text-white"
+                   />
+                </div>
+
+                <button 
+                    onClick={handleResetCycle}
+                    className="w-full py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-sm font-bold hover:bg-emerald-100 transition-colors flex items-center justify-center gap-2"
+                >
+                    <CalendarCheck className="w-4 h-4" />
+                    Recebi hoje! Reiniciar Saldo
+                </button>
+            </div>
+        </div>
+      </Card>
 
       <Card title="Notificações" className="border-violet-200 dark:border-violet-900">
         <div className="flex items-start space-x-4">
@@ -261,7 +305,7 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave, onLogout })
              <span>Desenvolvido por</span>
              <span className="text-violet-600 dark:text-violet-400 font-bold">Roniel N.</span>
         </div>
-        <p className="text-[10px] text-slate-300 dark:text-slate-700 mt-1">Meu Registro de Trabalho v1.2</p>
+        <p className="text-[10px] text-slate-300 dark:text-slate-700 mt-1">Meu Registro de Trabalho v1.3</p>
       </div>
     </div>
   );
