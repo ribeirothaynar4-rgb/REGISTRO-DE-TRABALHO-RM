@@ -110,6 +110,46 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         ...monthlyAdvances.map(i => ({...i, itemType: 'advance'})),
     ].sort((a,b) => a.date.localeCompare(b.date)), [monthlyEntries, monthlyAdvances]);
 
+  // Helper para calcular valores visuais corretos
+  const getItemDisplayDetails = (item: any) => {
+    if (item.itemType !== 'work') {
+        // É Adiantamento
+        return { 
+            value: item.amount, 
+            color: 'text-rose-600 dark:text-rose-400', 
+            prefix: '-' 
+        };
+    }
+
+    // É Trabalho
+    const status = item.status as WorkStatus;
+    const baseRate = item.dailyRateSnapshot;
+    const overtime = item.overtimeValue || 0;
+
+    if (status === WorkStatus.MISSED || status === WorkStatus.DAY_OFF) {
+        return { 
+            value: 0, 
+            color: 'text-slate-400 dark:text-slate-500', // Cinza neutro
+            prefix: '' 
+        };
+    }
+
+    if (status === WorkStatus.HALF_DAY) {
+        return { 
+            value: (baseRate / 2) + overtime, // Metade da diária
+            color: 'text-emerald-600 dark:text-emerald-400', 
+            prefix: '+' 
+        };
+    }
+
+    // Dia Inteiro ou Serviço Extra
+    return { 
+        value: baseRate + overtime, 
+        color: 'text-emerald-600 dark:text-emerald-400', 
+        prefix: '+' 
+    };
+  };
+
   const handleWhatsAppShare = () => {
     const text = `*RELATÓRIO DE SERVIÇOS*\n` +
                  `---------------------------\n` +
@@ -130,14 +170,32 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
   const generatePDF = () => {
     const doc = new jsPDF();
     doc.text(`Relatório de Serviços - ${periodLabel}`, 14, 20);
+    
     autoTable(doc, {
       startY: 30,
       head: [['Data', 'Descrição', 'Valor']],
-      body: allItems.map(item => [
-        format(parseISO(item.date), 'dd/MM'),
-        item.itemType === 'work' ? translateStatus((item as any).status) : (item as any).note || 'Vale',
-        item.itemType === 'work' ? `R$ ${((item as any).dailyRateSnapshot + ((item as any).overtimeValue || 0)).toFixed(2)}` : `- R$ ${(item as any).amount.toFixed(2)}`
-      ])
+      body: allItems.map(item => {
+        let valString = '';
+        if (item.itemType === 'work') {
+            const status = (item as any).status;
+            if (status === WorkStatus.MISSED || status === WorkStatus.DAY_OFF) {
+                valString = 'R$ 0.00';
+            } else {
+                let val = (item as any).dailyRateSnapshot;
+                if (status === WorkStatus.HALF_DAY) val = val / 2;
+                val += ((item as any).overtimeValue || 0);
+                valString = `R$ ${val.toFixed(2)}`;
+            }
+        } else {
+            valString = `- R$ ${(item as any).amount.toFixed(2)}`;
+        }
+
+        return [
+            format(parseISO(item.date), 'dd/MM'),
+            item.itemType === 'work' ? translateStatus((item as any).status) : (item as any).note || 'Vale',
+            valString
+        ];
+      })
     });
     
     const finalY = (doc as any).lastAutoTable.finalY + 10;
@@ -190,25 +248,29 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
                 Nenhum registro encontrado.
             </div>
         ) : (
-            allItems.map(item => (
-                <div key={item.id} className={`bg-white dark:bg-slate-900 p-4 rounded-xl flex justify-between items-center shadow-sm border border-slate-100 dark:border-slate-800 border-l-[6px] ${item.itemType === 'work' ? 'border-l-violet-500' : 'border-l-rose-500'}`}>
-                    <div className="flex-1">
-                        <p className="font-bold text-slate-800 dark:text-slate-200 text-sm">{format(parseISO(item.date), 'dd/MM')} • {translateStatus((item as any).status || 'Adiantamento')}</p>
-                        <p className="text-xs text-slate-500 mt-0.5 truncate max-w-[180px]">{(item as any).serviceTitle || (item as any).note || ''}</p>
+            allItems.map(item => {
+                const { value, color, prefix } = getItemDisplayDetails(item);
+                
+                return (
+                    <div key={item.id} className={`bg-white dark:bg-slate-900 p-4 rounded-xl flex justify-between items-center shadow-sm border border-slate-100 dark:border-slate-800 border-l-[6px] ${item.itemType === 'work' ? 'border-l-violet-500' : 'border-l-rose-500'}`}>
+                        <div className="flex-1">
+                            <p className="font-bold text-slate-800 dark:text-slate-200 text-sm">{format(parseISO(item.date), 'dd/MM')} • {translateStatus((item as any).status || 'Adiantamento')}</p>
+                            <p className="text-xs text-slate-500 mt-0.5 truncate max-w-[180px]">{(item as any).serviceTitle || (item as any).note || ''}</p>
+                        </div>
+                        <div className="flex items-center gap-5"> 
+                            <span className={`font-bold text-sm ${color}`}>
+                                {prefix} R$ {value.toFixed(2)}
+                            </span>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); item.itemType === 'work' ? handleDeleteWork(item.id) : handleDeleteAdvance(item.id); }} 
+                                className="p-2 text-slate-300 hover:text-rose-600 transition-colors"
+                            >
+                                <Trash2 className="w-6 h-6" />
+                            </button>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-5"> {/* GAP MAIOR NO RELATÓRIO TAMBÉM */}
-                        <span className={`font-bold text-sm ${item.itemType === 'work' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                            {item.itemType === 'work' ? '+' : '-'} R$ {(item as any).dailyRateSnapshot || (item as any).amount}
-                        </span>
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); item.itemType === 'work' ? handleDeleteWork(item.id) : handleDeleteAdvance(item.id); }} 
-                            className="p-2 text-slate-300 hover:text-rose-600 transition-colors"
-                        >
-                            <Trash2 className="w-6 h-6" />
-                        </button>
-                    </div>
-                </div>
-            ))
+                );
+            })
         )}
       </div>
     </div>
