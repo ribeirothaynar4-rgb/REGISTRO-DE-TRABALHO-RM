@@ -6,8 +6,8 @@ import { ChevronLeft, ChevronRight, Download, Edit, Trash2, Wallet, TrendingDown
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-import { UserSettings, WorkEntry, WorkStatus, AdvanceEntry, MonthlyStats } from '../types';
-import { getWorkEntries, getAdvances, deleteWorkEntry, deleteAdvance } from '../services/storageService';
+import { UserSettings, WorkEntry, WorkStatus, AdvanceEntry, MonthlyStats, ToolEntry } from '../types';
+import { getWorkEntries, getAdvances, deleteWorkEntry, deleteAdvance, getTools, deleteTool } from '../services/storageService';
 import { Card } from './ui/Card';
 
 interface ReportsTabProps {
@@ -36,10 +36,12 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
   const [customEndDate, setCustomEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [entries, setEntries] = useState<WorkEntry[]>([]);
   const [advances, setAdvances] = useState<AdvanceEntry[]>([]);
+  const [tools, setTools] = useState<ToolEntry[]>([]);
 
   useEffect(() => {
     setEntries(getWorkEntries());
     setAdvances(getAdvances());
+    setTools(getTools());
   }, [dataVersion]); 
 
   const handleDeleteWork = (id: string) => {
@@ -58,30 +60,42 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     }
   };
 
-  const { monthlyEntries, monthlyAdvances, stats, periodLabel } = useMemo(() => {
+  const handleDeleteTool = (id: string) => {
+    if (window.confirm("Excluir esta ferramenta?")) {
+        // Optimistic UI update
+        setTools(prev => prev.filter(t => t.id !== id));
+        deleteTool(id);
+    }
+  };
+
+  const { monthlyEntries, monthlyAdvances, monthlyTools, stats, periodLabel } = useMemo(() => {
     let fEntries: WorkEntry[] = [];
     let fAdvances: AdvanceEntry[] = [];
+    let fTools: ToolEntry[] = [];
     let label = '';
 
     if (reportMode === 'month') {
         fEntries = entries.filter(e => isSameMonth(parseISO(e.date), currentMonthDate));
         fAdvances = advances.filter(a => isSameMonth(parseISO(a.date), currentMonthDate));
+        fTools = tools.filter(t => isSameMonth(parseISO(t.date), currentMonthDate));
         label = format(currentMonthDate, 'MMMM/yyyy', { locale: ptBR }).toUpperCase();
     } else if (reportMode === 'cycle') {
         const cycleStart = settings.billingCycleStartDate || '2024-12-16';
         fEntries = entries.filter(e => e.date >= cycleStart);
         fAdvances = advances.filter(a => a.date >= cycleStart);
+        fTools = tools.filter(t => t.date >= cycleStart);
         label = `SALDO DESDE ${format(parseISO(cycleStart), 'dd/MM/yyyy')}`;
     } else {
         const start = startOfDay(parseISO(customStartDate));
         const end = endOfDay(parseISO(customEndDate));
         fEntries = entries.filter(e => isWithinInterval(parseISO(e.date), { start, end }));
         fAdvances = advances.filter(a => isWithinInterval(parseISO(a.date), { start, end }));
+        fTools = tools.filter(t => isWithinInterval(parseISO(t.date), { start, end }));
         label = `${format(start, 'dd/MM/yyyy')} a ${format(end, 'dd/MM/yyyy')}`;
     }
 
     const s: MonthlyStats = {
-      daysWorked: 0, daysMissed: 0, grossTotal: 0, totalAdvances: 0, finalTotal: 0,
+      daysWorked: 0, daysMissed: 0, grossTotal: 0, totalAdvances: 0, totalFromTools: 0, finalTotal: 0,
       totalFromDays: 0, totalFromOvertime: 0, totalFromExtraServices: 0,
     };
 
@@ -95,29 +109,39 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
 
     s.grossTotal = s.totalFromDays + s.totalFromOvertime + s.totalFromExtraServices;
     s.totalAdvances = fAdvances.reduce((acc, curr) => acc + curr.amount, 0);
-    s.finalTotal = s.grossTotal - s.totalAdvances;
+    s.totalFromTools = fTools.reduce((acc, curr) => acc + curr.amount, 0);
+    s.finalTotal = (s.grossTotal + s.totalFromTools) - s.totalAdvances;
 
     return { 
         monthlyEntries: fEntries.sort((a,b) => a.date.localeCompare(b.date)), 
         monthlyAdvances: fAdvances.sort((a,b) => a.date.localeCompare(b.date)), 
+        monthlyTools: fTools.sort((a,b) => a.date.localeCompare(b.date)),
         stats: s, 
         periodLabel: label 
     };
-  }, [currentMonthDate, customStartDate, customEndDate, reportMode, entries, advances, settings.billingCycleStartDate]);
+  }, [currentMonthDate, customStartDate, customEndDate, reportMode, entries, advances, tools, settings.billingCycleStartDate]);
 
   const allItems = useMemo(() => [
         ...monthlyEntries.map(i => ({...i, itemType: 'work'})),
         ...monthlyAdvances.map(i => ({...i, itemType: 'advance'})),
-    ].sort((a,b) => a.date.localeCompare(b.date)), [monthlyEntries, monthlyAdvances]);
+        ...monthlyTools.map(i => ({...i, itemType: 'tool'})),
+    ].sort((a,b) => a.date.localeCompare(b.date)), [monthlyEntries, monthlyAdvances, monthlyTools]);
 
   // Helper para calcular valores visuais corretos
   const getItemDisplayDetails = (item: any) => {
-    if (item.itemType !== 'work') {
-        // É Adiantamento
+    if (item.itemType === 'advance') {
         return { 
             value: item.amount, 
             color: 'text-rose-600 dark:text-rose-400', 
             prefix: '-' 
+        };
+    }
+
+    if (item.itemType === 'tool') {
+        return { 
+            value: item.amount, 
+            color: 'text-indigo-600 dark:text-indigo-400', 
+            prefix: '+' 
         };
     }
 
@@ -157,6 +181,7 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
                  `*Trabalhador:* ${settings.workerName || 'Não informado'}\n` +
                  `---------------------------\n` +
                  `*Total Bruto:* R$ ${stats.grossTotal.toFixed(2)}\n` +
+                 `*Ferramentas:* + R$ ${stats.totalFromTools.toFixed(2)}\n` +
                  `*Vales/Adiant.:* - R$ ${stats.totalAdvances.toFixed(2)}\n` +
                  `---------------------------\n` +
                  `*LÍQUIDO A RECEBER: R$ ${stats.finalTotal.toFixed(2)}*\n` +
@@ -186,13 +211,19 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
                 val += ((item as any).overtimeValue || 0);
                 valString = `R$ ${val.toFixed(2)}`;
             }
+        } else if (item.itemType === 'tool') {
+            valString = `+ R$ ${(item as any).amount.toFixed(2)}`;
         } else {
             valString = `- R$ ${(item as any).amount.toFixed(2)}`;
         }
 
         return [
             format(parseISO(item.date), 'dd/MM'),
-            item.itemType === 'work' ? translateStatus((item as any).status) : (item as any).note || 'Vale',
+            item.itemType === 'work' 
+                ? translateStatus((item as any).status) 
+                : item.itemType === 'tool' 
+                    ? `Ferramenta: ${(item as any).name}` 
+                    : (item as any).note || 'Vale',
             valString
         ];
       })
@@ -201,9 +232,10 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     const finalY = (doc as any).lastAutoTable.finalY + 10;
     doc.text(`Resumo:`, 14, finalY);
     doc.text(`Total Bruto: R$ ${stats.grossTotal.toFixed(2)}`, 14, finalY + 10);
-    doc.text(`Total Vales: - R$ ${stats.totalAdvances.toFixed(2)}`, 14, finalY + 20);
+    doc.text(`Ferramentas: + R$ ${stats.totalFromTools.toFixed(2)}`, 14, finalY + 20);
+    doc.text(`Total Vales: - R$ ${stats.totalAdvances.toFixed(2)}`, 14, finalY + 30);
     doc.setFontSize(14);
-    doc.text(`LÍQUIDO: R$ ${stats.finalTotal.toFixed(2)}`, 14, finalY + 35);
+    doc.text(`LÍQUIDO: R$ ${stats.finalTotal.toFixed(2)}`, 14, finalY + 45);
     
     doc.save(`Relatorio_${periodLabel.replace(/\s/g, '_')}.pdf`);
   };
@@ -221,14 +253,18 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
              <p className="text-xs font-bold text-emerald-600 uppercase">Bruto</p>
              <p className="text-xl font-bold text-emerald-700 dark:text-emerald-300">R$ {stats.grossTotal.toFixed(2)}</p>
           </div>
+          <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-800">
+             <p className="text-xs font-bold text-indigo-600 uppercase">Ferramentas</p>
+             <p className="text-xl font-bold text-indigo-700 dark:text-indigo-300">+ {stats.totalFromTools.toFixed(2)}</p>
+          </div>
           <div className="bg-rose-50 dark:bg-rose-900/20 p-4 rounded-2xl border border-rose-100 dark:border-rose-800">
              <p className="text-xs font-bold text-rose-600 uppercase">Vales</p>
              <p className="text-xl font-bold text-rose-700 dark:text-rose-300">- {stats.totalAdvances.toFixed(2)}</p>
           </div>
-          <div className="col-span-2 bg-gradient-to-r from-violet-600 to-indigo-600 p-5 rounded-2xl text-white shadow-lg relative overflow-hidden">
+          <div className="bg-gradient-to-r from-violet-600 to-indigo-600 p-5 rounded-2xl text-white shadow-lg relative overflow-hidden col-span-1">
              <div className="absolute right-[-10%] top-[-20%] opacity-10 bg-white rounded-full w-32 h-32 blur-xl"></div>
-             <p className="text-xs font-bold text-indigo-100 uppercase mb-1">A RECEBER (LÍQUIDO)</p>
-             <p className="text-3xl font-extrabold tracking-tight">R$ {stats.finalTotal.toFixed(2)}</p>
+             <p className="text-xs font-bold text-indigo-100 uppercase mb-1">LÍQUIDO</p>
+             <p className="text-2xl font-extrabold tracking-tight">R$ {stats.finalTotal.toFixed(2)}</p>
           </div>
       </div>
 
@@ -251,10 +287,22 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
             allItems.map(item => {
                 const { value, color, prefix } = getItemDisplayDetails(item);
                 
+                let borderClass = 'border-l-violet-500';
+                if (item.itemType === 'advance') borderClass = 'border-l-rose-500';
+                if (item.itemType === 'tool') borderClass = 'border-l-indigo-500';
+
                 return (
-                    <div key={item.id} className={`bg-white dark:bg-slate-900 p-4 rounded-xl flex justify-between items-center shadow-sm border border-slate-100 dark:border-slate-800 border-l-[6px] ${item.itemType === 'work' ? 'border-l-violet-500' : 'border-l-rose-500'}`}>
+                    <div key={item.id} className={`bg-white dark:bg-slate-900 p-4 rounded-xl flex justify-between items-center shadow-sm border border-slate-100 dark:border-slate-800 border-l-[6px] ${borderClass}`}>
                         <div className="flex-1">
-                            <p className="font-bold text-slate-800 dark:text-slate-200 text-sm">{format(parseISO(item.date), 'dd/MM')} • {translateStatus((item as any).status || 'Adiantamento')}</p>
+                            <p className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                                {format(parseISO(item.date), 'dd/MM')} • {
+                                    item.itemType === 'work' 
+                                        ? translateStatus((item as any).status) 
+                                        : item.itemType === 'tool' 
+                                            ? `Ferramenta: ${(item as any).name}` 
+                                            : 'Vale'
+                                }
+                            </p>
                             <p className="text-xs text-slate-500 mt-0.5 truncate max-w-[180px]">{(item as any).serviceTitle || (item as any).note || ''}</p>
                         </div>
                         <div className="flex items-center gap-5"> 
@@ -262,7 +310,12 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
                                 {prefix} R$ {value.toFixed(2)}
                             </span>
                             <button 
-                                onClick={(e) => { e.stopPropagation(); item.itemType === 'work' ? handleDeleteWork(item.id) : handleDeleteAdvance(item.id); }} 
+                                onClick={(e) => { 
+                                    e.stopPropagation(); 
+                                    if (item.itemType === 'work') handleDeleteWork(item.id);
+                                    else if (item.itemType === 'tool') handleDeleteTool(item.id);
+                                    else handleDeleteAdvance(item.id); 
+                                }} 
                                 className="p-2 text-slate-300 hover:text-rose-600 transition-colors"
                             >
                                 <Trash2 className="w-6 h-6" />

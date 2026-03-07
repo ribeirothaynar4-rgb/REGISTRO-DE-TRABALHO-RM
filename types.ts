@@ -33,6 +33,14 @@ export interface ExpenseEntry {
   note?: string;
 }
 
+export interface ToolEntry {
+  id: string;
+  date: string; // ISO string YYYY-MM-DD
+  name: string;
+  amount: number;
+  note?: string;
+}
+
 export interface UserSettings {
   dailyRate: number;
   workerName: string;
@@ -49,6 +57,7 @@ export interface MonthlyStats {
   daysMissed: number;
   grossTotal: number;
   totalAdvances: number;
+  totalFromTools: number;
   finalTotal: number;
   // Detalhamento do valor bruto
   totalFromDays: number;

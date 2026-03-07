@@ -1,5 +1,5 @@
 
-import { WorkEntry, AdvanceEntry, UserSettings, WorkStatus, ExpenseEntry } from '../types';
+import { WorkEntry, AdvanceEntry, UserSettings, WorkStatus, ExpenseEntry, ToolEntry } from '../types';
 import { format, subDays, startOfMonth } from 'date-fns';
 import { supabase } from './supabaseClient';
 
@@ -7,6 +7,7 @@ const KEYS = {
   WORK_ENTRIES: 'mrt_work_entries',
   ADVANCES: 'mrt_advances',
   EXPENSES: 'mrt_expenses',
+  TOOLS: 'mrt_tools',
   SETTINGS: 'mrt_settings',
   LAST_NOTIF: 'mrt_last_notification_date'
 };
@@ -15,6 +16,7 @@ export const clearLocalData = () => {
   localStorage.removeItem(KEYS.WORK_ENTRIES);
   localStorage.removeItem(KEYS.ADVANCES);
   localStorage.removeItem(KEYS.EXPENSES);
+  localStorage.removeItem(KEYS.TOOLS);
   localStorage.removeItem(KEYS.SETTINGS);
 };
 
@@ -81,6 +83,13 @@ export const getExpenses = (): ExpenseEntry[] => {
   } catch { return []; }
 };
 
+export const getTools = (): ToolEntry[] => {
+  try {
+    const data = localStorage.getItem(KEYS.TOOLS);
+    return data ? JSON.parse(data) : [];
+  } catch { return []; }
+};
+
 export const getSettings = (): UserSettings => {
   const defaultSettings: UserSettings = {
     dailyRate: 200,
@@ -141,6 +150,20 @@ export const deleteExpense = (id: string) => {
   syncKeyToSupabase(KEYS.EXPENSES, newExpenses);
 };
 
+export const saveTool = (tool: ToolEntry) => {
+  const tools = getTools();
+  const index = tools.findIndex(t => t.id === tool.id);
+  if (index >= 0) tools[index] = tool; else tools.push(tool);
+  localStorage.setItem(KEYS.TOOLS, JSON.stringify(tools));
+  syncKeyToSupabase(KEYS.TOOLS, tools);
+};
+
+export const deleteTool = (id: string) => {
+  const newTools = getTools().filter(t => t.id !== id);
+  localStorage.setItem(KEYS.TOOLS, JSON.stringify(newTools));
+  syncKeyToSupabase(KEYS.TOOLS, newTools);
+};
+
 export const saveSettings = (settings: UserSettings) => {
   localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
   syncKeyToSupabase(KEYS.SETTINGS, settings);
@@ -154,6 +177,7 @@ export const exportAllData = (): string => {
     workEntries: getWorkEntries(),
     advances: getAdvances(),
     expenses: getExpenses(),
+    tools: getTools(),
     settings: getSettings(),
     exportedAt: new Date().toISOString()
   });
@@ -165,10 +189,12 @@ export const importAllData = async (jsonString: string): Promise<boolean> => {
     localStorage.setItem(KEYS.WORK_ENTRIES, JSON.stringify(data.workEntries || []));
     localStorage.setItem(KEYS.ADVANCES, JSON.stringify(data.advances || []));
     localStorage.setItem(KEYS.EXPENSES, JSON.stringify(data.expenses || []));
+    localStorage.setItem(KEYS.TOOLS, JSON.stringify(data.tools || []));
     localStorage.setItem(KEYS.SETTINGS, JSON.stringify(data.settings || {}));
     await Promise.all([
       syncKeyToSupabase(KEYS.WORK_ENTRIES, data.workEntries),
       syncKeyToSupabase(KEYS.ADVANCES, data.advances),
+      syncKeyToSupabase(KEYS.TOOLS, data.tools),
       syncKeyToSupabase(KEYS.SETTINGS, data.settings)
     ]);
     return true;
