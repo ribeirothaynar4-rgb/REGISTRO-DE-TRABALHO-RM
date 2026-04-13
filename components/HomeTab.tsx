@@ -80,6 +80,10 @@ const HomeTab: React.FC<HomeTabProps> = ({ settings, onUpdate, initialDate, onCl
             return;
         }
         rateToSave = parseFloat(serviceValue);
+    } else if (status === WorkStatus.SATURDAY_FULL) {
+        rateToSave = 125;
+    } else if (status === WorkStatus.SUNDAY) {
+        rateToSave = 150;
     }
 
     const entry: WorkEntry = {
@@ -225,6 +229,42 @@ const HomeTab: React.FC<HomeTabProps> = ({ settings, onUpdate, initialDate, onCl
           <span className="font-bold text-base">Falta</span>
           <span className="text-xs font-bold bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200 px-3 py-1 rounded-full">
             R$ 0,00
+          </span>
+        </button>
+
+        {/* Saturday Full Day */}
+        <button
+          onClick={() => setStatus(WorkStatus.SATURDAY_FULL)}
+          className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center space-y-2 transition-all duration-300 ${
+            status === WorkStatus.SATURDAY_FULL
+              ? 'border-indigo-500 bg-gradient-to-br from-indigo-50 to-blue-50 text-indigo-700 shadow-lg shadow-indigo-100 transform scale-[1.02] dark:bg-indigo-900/20 dark:text-indigo-300 dark:border-indigo-500 dark:shadow-none'
+              : 'border-slate-100 bg-white text-slate-500 hover:border-indigo-200 hover:bg-indigo-50/50 hover:text-indigo-600 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800'
+          }`}
+        >
+           <div className={`p-3 rounded-full ${status === WorkStatus.SATURDAY_FULL ? 'bg-indigo-200/50' : 'bg-slate-100 dark:bg-slate-800'} transition-colors`}>
+              <Clock className={`w-7 h-7 ${status === WorkStatus.SATURDAY_FULL ? 'fill-indigo-500 text-white' : ''}`} />
+           </div>
+          <span className="font-bold text-base">Sábado Dia Inteiro</span>
+          <span className="text-xs font-bold bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200 px-3 py-1 rounded-full">
+            + R$ 125,00
+          </span>
+        </button>
+
+        {/* Sunday */}
+        <button
+          onClick={() => setStatus(WorkStatus.SUNDAY)}
+          className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center space-y-2 transition-all duration-300 ${
+            status === WorkStatus.SUNDAY
+              ? 'border-emerald-500 bg-gradient-to-br from-emerald-50 to-teal-50 text-emerald-700 shadow-lg shadow-emerald-100 transform scale-[1.02] dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-500 dark:shadow-none'
+              : 'border-slate-100 bg-white text-slate-500 hover:border-emerald-200 hover:bg-emerald-50/50 hover:text-emerald-600 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800'
+          }`}
+        >
+           <div className={`p-3 rounded-full ${status === WorkStatus.SUNDAY ? 'bg-emerald-200/50' : 'bg-slate-100 dark:bg-slate-800'} transition-colors`}>
+              <CheckCircle className={`w-7 h-7 ${status === WorkStatus.SUNDAY ? 'fill-emerald-600 text-white' : ''}`} />
+           </div>
+          <span className="font-bold text-base">Domingo</span>
+          <span className="text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 px-3 py-1 rounded-full">
+            + R$ 150,00
           </span>
         </button>
 

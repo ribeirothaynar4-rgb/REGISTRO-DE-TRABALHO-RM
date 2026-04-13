@@ -2,12 +2,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { format, startOfMonth, endOfMonth, isSameMonth, parseISO, addMonths, subMonths, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, Download, Edit, Trash2, Wallet, TrendingDown, TrendingUp, CalendarSearch, CalendarRange, Calendar, RotateCcw, Share2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Edit, Trash2, Wallet, TrendingDown, TrendingUp, CalendarSearch, CalendarRange, Calendar, RotateCcw, Share2, History } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 import { UserSettings, WorkEntry, WorkStatus, AdvanceEntry, MonthlyStats, ToolEntry } from '../types';
-import { getWorkEntries, getAdvances, deleteWorkEntry, deleteAdvance, getTools, deleteTool } from '../services/storageService';
+import { getWorkEntries, getAdvances, deleteWorkEntry, deleteAdvance, getTools, deleteTool, getCycleHistory, deleteCycleHistory } from '../services/storageService';
 import { Card } from './ui/Card';
 
 interface ReportsTabProps {
@@ -16,7 +16,7 @@ interface ReportsTabProps {
   dataVersion: number;
 }
 
-type ReportMode = 'month' | 'custom' | 'cycle';
+type ReportMode = 'month' | 'custom' | 'cycle' | 'history';
 
 const translateStatus = (status: WorkStatus): string => {
   switch (status) {
@@ -25,6 +25,8 @@ const translateStatus = (status: WorkStatus): string => {
     case WorkStatus.MISSED: return 'Falta';
     case WorkStatus.DAY_OFF: return 'Folga';
     case WorkStatus.EXTRA_SERVICE: return 'Serviço Extra';
+    case WorkStatus.SATURDAY_FULL: return 'Sábado Dia Inteiro';
+    case WorkStatus.SUNDAY: return 'Domingo';
     default: return status;
   }
 };
@@ -37,11 +39,13 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
   const [entries, setEntries] = useState<WorkEntry[]>([]);
   const [advances, setAdvances] = useState<AdvanceEntry[]>([]);
   const [tools, setTools] = useState<ToolEntry[]>([]);
+  const [cycleHistory, setCycleHistory] = useState<any[]>([]);
 
   useEffect(() => {
     setEntries(getWorkEntries());
     setAdvances(getAdvances());
     setTools(getTools());
+    setCycleHistory(getCycleHistory());
   }, [dataVersion]); 
 
   const handleDeleteWork = (id: string) => {
@@ -65,6 +69,13 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         // Optimistic UI update
         setTools(prev => prev.filter(t => t.id !== id));
         deleteTool(id);
+    }
+  };
+
+  const handleDeleteHistory = (id: string) => {
+    if (window.confirm("Excluir este registro do histórico?")) {
+        setCycleHistory(prev => prev.filter(c => c.id !== id));
+        deleteCycleHistory(id);
     }
   };
 
@@ -102,6 +113,8 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     fEntries.forEach(e => {
       if (e.status === WorkStatus.WORKED) { s.daysWorked += 1; s.totalFromDays += e.dailyRateSnapshot; }
       else if (e.status === WorkStatus.HALF_DAY) { s.daysWorked += 0.5; s.totalFromDays += (e.dailyRateSnapshot / 2); }
+      else if (e.status === WorkStatus.SATURDAY_FULL) { s.daysWorked += 1; s.totalFromDays += e.dailyRateSnapshot; }
+      else if (e.status === WorkStatus.SUNDAY) { s.daysWorked += 1; s.totalFromDays += e.dailyRateSnapshot; }
       else if (e.status === WorkStatus.MISSED) s.daysMissed += 1;
       else if (e.status === WorkStatus.EXTRA_SERVICE) s.totalFromExtraServices += e.dailyRateSnapshot;
       if (e.overtimeValue) s.totalFromOvertime += e.overtimeValue;
@@ -166,7 +179,7 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         };
     }
 
-    // Dia Inteiro ou Serviço Extra
+    // Dia Inteiro, Sábado Dia Inteiro, Domingo ou Serviço Extra
     return { 
         value: baseRate + overtime, 
         color: 'text-emerald-600 dark:text-emerald-400', 
@@ -198,7 +211,7 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     
     autoTable(doc, {
       startY: 30,
-      head: [['Data', 'Descrição', 'Valor']],
+      head: [['Dia', 'Data', 'Descrição', 'Valor']],
       body: allItems.map(item => {
         let valString = '';
         if (item.itemType === 'work') {
@@ -218,6 +231,7 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         }
 
         return [
+            format(parseISO(item.date), 'EEE', { locale: ptBR }).toUpperCase(),
             format(parseISO(item.date), 'dd/MM'),
             item.itemType === 'work' 
                 ? translateStatus((item as any).status) 
@@ -226,7 +240,10 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
                     : (item as any).note || 'Vale',
             valString
         ];
-      })
+      }),
+      columnStyles: {
+        0: { fontStyle: 'bold' } // Apenas negrito para a coluna 'Dia', cor preta padrão
+      }
     });
     
     const finalY = (doc as any).lastAutoTable.finalY + 10;
@@ -245,10 +262,75 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
       <div className="bg-white dark:bg-slate-900 p-1.5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 flex overflow-x-auto">
         <button onClick={() => setReportMode('cycle')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${reportMode === 'cycle' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'text-slate-500'}`}><RotateCcw className="w-4 h-4" />Ciclo Atual</button>
         <button onClick={() => setReportMode('month')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${reportMode === 'month' ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' : 'text-slate-500'}`}><Calendar className="w-4 h-4" />Mês</button>
-        <button onClick={() => setReportMode('custom')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${reportMode === 'custom' ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' : 'text-slate-500'}`}><CalendarRange className="w-4 h-4" />Busca</button>
+        <button onClick={() => setReportMode('custom')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${reportMode === 'custom' ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300' : 'text-slate-500'}`}><CalendarSearch className="w-4 h-4" />Busca</button>
+        <button onClick={() => setReportMode('history')} className={`flex-1 py-2 px-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${reportMode === 'history' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300' : 'text-slate-500'}`}><History className="w-4 h-4" />Histórico</button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      {reportMode === 'history' ? (
+          <div className="space-y-4">
+              <h3 className="text-sm font-bold text-slate-500 uppercase ml-2 tracking-wider">Ciclos Encerrados</h3>
+              {cycleHistory.length === 0 ? (
+                  <div className="text-center py-10 bg-slate-50 dark:bg-slate-900 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 text-slate-400 font-medium">
+                      Nenhum ciclo encerrado ainda.
+                  </div>
+              ) : (
+                  cycleHistory.slice().reverse().map(cycle => (
+                      <Card key={cycle.id} className="border-indigo-100 dark:border-indigo-900">
+                          <div className="flex justify-between items-start mb-3">
+                              <div>
+                                  <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                                      {format(parseISO(cycle.startDate), 'dd/MM/yy')} a {format(parseISO(cycle.endDate), 'dd/MM/yy')}
+                                  </p>
+                                  <h4 className="font-bold text-slate-800 dark:text-white">Ciclo Encerrado</h4>
+                              </div>
+                              <button onClick={() => handleDeleteHistory(cycle.id)} className="p-2 text-slate-300 hover:text-rose-600 transition-colors">
+                                  <Trash2 className="w-5 h-5" />
+                              </button>
+                          </div>
+                          
+                          <div className="grid grid-cols-3 gap-2 mb-4">
+                              <div className="bg-slate-50 dark:bg-slate-800 p-2 rounded-lg text-center">
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase">Bruto</p>
+                                  <p className="text-sm font-bold text-slate-700 dark:text-slate-300">R$ {cycle.stats.grossTotal.toFixed(2)}</p>
+                              </div>
+                              <div className="bg-slate-50 dark:bg-slate-800 p-2 rounded-lg text-center">
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase">Vales</p>
+                                  <p className="text-sm font-bold text-rose-600 dark:text-rose-400">- {cycle.stats.totalAdvances.toFixed(2)}</p>
+                              </div>
+                              <div className="bg-indigo-50 dark:bg-indigo-900/30 p-2 rounded-lg text-center">
+                                  <p className="text-[10px] font-bold text-indigo-400 uppercase">Líquido</p>
+                                  <p className="text-sm font-bold text-indigo-600 dark:text-indigo-300">R$ {cycle.stats.finalTotal.toFixed(2)}</p>
+                              </div>
+                          </div>
+
+                          <button 
+                            onClick={() => {
+                                const text = `*RELATÓRIO DE CICLO ENCERRADO*\n` +
+                                             `---------------------------\n` +
+                                             `*Período:* ${format(parseISO(cycle.startDate), 'dd/MM/yy')} a ${format(parseISO(cycle.endDate), 'dd/MM/yy')}\n` +
+                                             `*Trabalhador:* ${cycle.workerName || 'Não informado'}\n` +
+                                             `---------------------------\n` +
+                                             `*Total Bruto:* R$ ${cycle.stats.grossTotal.toFixed(2)}\n` +
+                                             `*Ferramentas:* + R$ ${cycle.stats.totalFromTools.toFixed(2)}\n` +
+                                             `*Vales/Adiant.:* - R$ ${cycle.stats.totalAdvances.toFixed(2)}\n` +
+                                             `---------------------------\n` +
+                                             `*LÍQUIDO RECEBIDO: R$ ${cycle.stats.finalTotal.toFixed(2)}*\n` +
+                                             `---------------------------\n` +
+                                             `_Gerado por Meu Registro de Trabalho_`;
+                                const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                                window.open(url, '_blank');
+                            }}
+                            className="w-full py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-lg text-xs font-bold hover:bg-emerald-100 hover:text-emerald-700 transition-colors flex items-center justify-center gap-2"
+                          >
+                              <Share2 className="w-4 h-4" /> Re-compartilhar no WhatsApp
+                          </button>
+                      </Card>
+                  ))
+              )}
+          </div>
+      ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3">
           <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-800">
              <p className="text-xs font-bold text-emerald-600 uppercase">Bruto</p>
              <p className="text-xl font-bold text-emerald-700 dark:text-emerald-300">R$ {stats.grossTotal.toFixed(2)}</p>
@@ -326,6 +408,8 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
             })
         )}
       </div>
+      </>
+      )}
     </div>
   );
 };

@@ -6,6 +6,8 @@ export enum WorkStatus {
   MISSED = 'MISSED',
   DAY_OFF = 'DAY_OFF',
   EXTRA_SERVICE = 'EXTRA_SERVICE',
+  SATURDAY_FULL = 'SATURDAY_FULL',
+  SUNDAY = 'SUNDAY',
 }
 
 export interface WorkEntry {
@@ -39,6 +41,15 @@ export interface ToolEntry {
   name: string;
   amount: number;
   note?: string;
+}
+
+export interface CycleHistory {
+  id: string;
+  startDate: string;
+  endDate: string;
+  stats: MonthlyStats;
+  workerName: string;
+  employerName: string;
 }
 
 export interface UserSettings {

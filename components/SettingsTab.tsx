@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { UserSettings } from '../types';
-import { saveSettings, exportAllData, importAllData, generateTestData } from '../services/storageService';
+import { saveSettings, exportAllData, importAllData, generateTestData, calculateStats, saveCycleHistory } from '../services/storageService';
 import { Card } from './ui/Card';
-import { User, DollarSign, Briefcase, Download, Upload, Database, AlertTriangle, Wand2, Sun, Moon, Bell, Clock, Code, LogOut, Loader2, CalendarCheck, RotateCcw } from 'lucide-react';
+import { User, DollarSign, Briefcase, Download, Upload, Database, AlertTriangle, Wand2, Sun, Moon, Bell, Clock, Code, LogOut, Loader2, CalendarCheck, RotateCcw, History, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 
 interface SettingsTabProps {
@@ -72,14 +72,31 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave, onLogout })
   };
 
   const handleResetCycle = () => {
-     if(confirm("Deseja iniciar um novo ciclo de pagamentos a partir de HOJE? \n\nO saldo na aba Relatórios começará a ser contado desta data em diante.")) {
+     if(confirm("Deseja iniciar um novo ciclo de pagamentos a partir de HOJE? \n\nO saldo na aba Relatórios começará a ser contado desta data em diante.\n\nO ciclo atual será salvo no histórico.")) {
          const todayStr = format(new Date(), 'yyyy-MM-dd');
+         const cycleStart = formData.billingCycleStartDate || '2024-12-16';
+         
+         // 1. Calcular estatísticas do ciclo que está fechando
+         const stats = calculateStats(cycleStart, todayStr);
+         
+         // 2. Salvar no histórico
+         saveCycleHistory({
+             id: Date.now().toString(),
+             startDate: cycleStart,
+             endDate: todayStr,
+             stats: stats,
+             workerName: formData.workerName,
+             employerName: formData.employerName
+         });
+
+         // 3. Resetar data de início
          handleChange('billingCycleStartDate', todayStr);
+         
          // Auto-save para garantir
          const newSettings = { ...formData, billingCycleStartDate: todayStr };
          saveSettings(newSettings);
          onSave(newSettings);
-         alert(`Novo ciclo iniciado em ${format(new Date(), 'dd/MM/yyyy')}!`);
+         alert(`Novo ciclo iniciado em ${format(new Date(), 'dd/MM/yyyy')}!\nO ciclo anterior foi salvo no histórico.`);
      }
   }
 
@@ -134,6 +151,13 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave, onLogout })
     if (confirm("Atenção: Isso irá APAGAR todos os dados atuais e preencher com dados de exemplo. Deseja continuar?")) {
       generateTestData();
       window.location.reload();
+    }
+  };
+
+  const handleClearAllData = () => {
+    if (confirm("⚠️ ATENÇÃO: Isso irá apagar PERMANENTEMENTE todos os seus registros, vales, ferramentas e histórico. Esta ação não pode ser desfeita. Deseja continuar?")) {
+        localStorage.clear();
+        window.location.reload();
     }
   };
 
@@ -294,8 +318,9 @@ const SettingsTab: React.FC<SettingsTabProps> = ({ settings, onSave, onLogout })
                   <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json" className="hidden" />
               </button>
           </div>
-          <div className="mt-6 pt-6 border-t dark:border-slate-800">
+          <div className="mt-6 pt-6 border-t dark:border-slate-800 space-y-3">
             <button onClick={handleGenerateDemoData} className="w-full flex items-center justify-center space-x-2 p-3 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-lg text-sm font-medium"><Wand2 className="w-4 h-4" /><span>Preencher com Dados de Teste</span></button>
+            <button onClick={handleClearAllData} className="w-full flex items-center justify-center space-x-2 p-3 bg-rose-50 dark:bg-rose-900/20 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg text-sm font-medium"><Trash2 className="w-4 h-4" /><span>Apagar Todos os Dados</span></button>
           </div>
       </div>
 
