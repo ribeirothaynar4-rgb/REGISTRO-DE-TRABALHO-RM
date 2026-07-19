@@ -74,4 +74,17 @@ export interface MonthlyStats {
   totalFromDays: number;
   totalFromOvertime: number;
   totalFromExtraServices: number;
+  pontoMinutesOwed?: number;
+  pontoDiscountValue?: number;
+}
+
+export interface PontoEntry {
+  id: string;
+  date: string; // ISO string YYYY-MM-DD
+  morningArrival: string; // "HH:MM" e.g., "08:05"
+  afternoonArrival: string; // "HH:MM" e.g., "13:35"
+  morningDelay: number; // minutos de atraso (positivo = devendo, negativo = adiantado)
+  afternoonDelay: number; // minutos de atraso (positivo = devendo, negativo = adiantado)
+  totalDelay: number; // morningDelay + afternoonDelay
+  valueEquivalent: number; // totalDelay * (75 / 480)
 }

@@ -1,5 +1,5 @@
 
-import { WorkEntry, AdvanceEntry, UserSettings, WorkStatus, ExpenseEntry, ToolEntry, CycleHistory, MonthlyStats } from '../types';
+import { WorkEntry, AdvanceEntry, UserSettings, WorkStatus, ExpenseEntry, ToolEntry, CycleHistory, MonthlyStats, PontoEntry } from '../types';
 import { format, subDays, startOfMonth, parseISO, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { supabase } from './supabaseClient';
 
@@ -10,7 +10,8 @@ const KEYS = {
   TOOLS: 'mrt_tools',
   CYCLE_HISTORY: 'mrt_cycle_history',
   SETTINGS: 'mrt_settings',
-  LAST_NOTIF: 'mrt_last_notification_date'
+  LAST_NOTIF: 'mrt_last_notification_date',
+  PONTO_ENTRIES: 'mrt_ponto_entries'
 };
 
 export const clearLocalData = () => {
@@ -20,6 +21,7 @@ export const clearLocalData = () => {
   localStorage.removeItem(KEYS.TOOLS);
   localStorage.removeItem(KEYS.CYCLE_HISTORY);
   localStorage.removeItem(KEYS.SETTINGS);
+  localStorage.removeItem(KEYS.PONTO_ENTRIES);
 };
 
 const syncKeyToSupabase = async (key: string, data: any): Promise<boolean> => {
@@ -97,6 +99,27 @@ export const getCycleHistory = (): CycleHistory[] => {
     const data = localStorage.getItem(KEYS.CYCLE_HISTORY);
     return data ? JSON.parse(data) : [];
   } catch { return []; }
+};
+
+export const getPontoEntries = (): PontoEntry[] => {
+  try {
+    const data = localStorage.getItem(KEYS.PONTO_ENTRIES);
+    return data ? JSON.parse(data) : [];
+  } catch { return []; }
+};
+
+export const savePontoEntry = (entry: PontoEntry) => {
+  const entries = getPontoEntries();
+  const index = entries.findIndex(e => e.id === entry.id);
+  if (index >= 0) entries[index] = entry; else entries.push(entry);
+  localStorage.setItem(KEYS.PONTO_ENTRIES, JSON.stringify(entries));
+  syncKeyToSupabase(KEYS.PONTO_ENTRIES, entries);
+};
+
+export const deletePontoEntry = (id: string) => {
+  const newEntries = getPontoEntries().filter(e => e.id !== id);
+  localStorage.setItem(KEYS.PONTO_ENTRIES, JSON.stringify(newEntries));
+  syncKeyToSupabase(KEYS.PONTO_ENTRIES, newEntries);
 };
 
 export const getSettings = (): UserSettings => {
@@ -198,6 +221,7 @@ export const calculateStats = (startDate: string, endDate: string): MonthlyStats
   const entries = getWorkEntries();
   const advances = getAdvances();
   const tools = getTools();
+  const ponto = getPontoEntries();
 
   const start = startOfDay(parseISO(startDate));
   const end = endOfDay(parseISO(endDate));
@@ -205,10 +229,13 @@ export const calculateStats = (startDate: string, endDate: string): MonthlyStats
   const fEntries = entries.filter(e => isWithinInterval(parseISO(e.date), { start, end }));
   const fAdvances = advances.filter(a => isWithinInterval(parseISO(a.date), { start, end }));
   const fTools = tools.filter(t => isWithinInterval(parseISO(t.date), { start, end }));
+  const fPonto = ponto.filter(p => isWithinInterval(parseISO(p.date), { start, end }));
 
   const s: MonthlyStats = {
     daysWorked: 0, daysMissed: 0, grossTotal: 0, totalAdvances: 0, totalFromTools: 0, finalTotal: 0,
     totalFromDays: 0, totalFromOvertime: 0, totalFromExtraServices: 0,
+    pontoMinutesOwed: 0,
+    pontoDiscountValue: 0
   };
 
   fEntries.forEach(e => {
@@ -221,10 +248,17 @@ export const calculateStats = (startDate: string, endDate: string): MonthlyStats
     if (e.overtimeValue) s.totalFromOvertime += e.overtimeValue;
   });
 
+  const totalDelayMinutes = fPonto.reduce((acc, curr) => acc + curr.totalDelay, 0);
+  const pontoMinutesOwed = totalDelayMinutes > 0 ? totalDelayMinutes : 0;
+  const pontoDiscountValue = totalDelayMinutes > 0 ? totalDelayMinutes * (75 / 450) : 0;
+
+  s.pontoMinutesOwed = pontoMinutesOwed;
+  s.pontoDiscountValue = pontoDiscountValue;
+
   s.grossTotal = s.totalFromDays + s.totalFromOvertime + s.totalFromExtraServices;
   s.totalAdvances = fAdvances.reduce((acc, curr) => acc + curr.amount, 0);
   s.totalFromTools = fTools.reduce((acc, curr) => acc + curr.amount, 0);
-  s.finalTotal = (s.grossTotal + s.totalFromTools) - s.totalAdvances;
+  s.finalTotal = (s.grossTotal + s.totalFromTools) - s.totalAdvances - pontoDiscountValue;
 
   return s;
 };
@@ -236,6 +270,7 @@ export const exportAllData = (): string => {
     expenses: getExpenses(),
     tools: getTools(),
     cycleHistory: getCycleHistory(),
+    pontoEntries: getPontoEntries(),
     settings: getSettings(),
     exportedAt: new Date().toISOString()
   });
@@ -249,12 +284,14 @@ export const importAllData = async (jsonString: string): Promise<boolean> => {
     localStorage.setItem(KEYS.EXPENSES, JSON.stringify(data.expenses || []));
     localStorage.setItem(KEYS.TOOLS, JSON.stringify(data.tools || []));
     localStorage.setItem(KEYS.CYCLE_HISTORY, JSON.stringify(data.cycleHistory || []));
+    localStorage.setItem(KEYS.PONTO_ENTRIES, JSON.stringify(data.pontoEntries || []));
     localStorage.setItem(KEYS.SETTINGS, JSON.stringify(data.settings || {}));
     await Promise.all([
       syncKeyToSupabase(KEYS.WORK_ENTRIES, data.workEntries),
       syncKeyToSupabase(KEYS.ADVANCES, data.advances),
       syncKeyToSupabase(KEYS.TOOLS, data.tools),
       syncKeyToSupabase(KEYS.CYCLE_HISTORY, data.cycleHistory),
+      syncKeyToSupabase(KEYS.PONTO_ENTRIES, data.pontoEntries),
       syncKeyToSupabase(KEYS.SETTINGS, data.settings)
     ]);
     return true;

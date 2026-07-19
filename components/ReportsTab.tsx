@@ -6,8 +6,8 @@ import { ChevronLeft, ChevronRight, Download, Edit, Trash2, Wallet, TrendingDown
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-import { UserSettings, WorkEntry, WorkStatus, AdvanceEntry, MonthlyStats, ToolEntry } from '../types';
-import { getWorkEntries, getAdvances, deleteWorkEntry, deleteAdvance, getTools, deleteTool, getCycleHistory, deleteCycleHistory } from '../services/storageService';
+import { UserSettings, WorkEntry, WorkStatus, AdvanceEntry, MonthlyStats, ToolEntry, PontoEntry } from '../types';
+import { getWorkEntries, getAdvances, deleteWorkEntry, deleteAdvance, getTools, deleteTool, getCycleHistory, deleteCycleHistory, getPontoEntries } from '../services/storageService';
 import { Card } from './ui/Card';
 
 interface ReportsTabProps {
@@ -40,12 +40,14 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
   const [advances, setAdvances] = useState<AdvanceEntry[]>([]);
   const [tools, setTools] = useState<ToolEntry[]>([]);
   const [cycleHistory, setCycleHistory] = useState<any[]>([]);
+  const [ponto, setPonto] = useState<PontoEntry[]>([]);
 
   useEffect(() => {
     setEntries(getWorkEntries());
     setAdvances(getAdvances());
     setTools(getTools());
     setCycleHistory(getCycleHistory());
+    setPonto(getPontoEntries());
   }, [dataVersion]); 
 
   const handleDeleteWork = (id: string) => {
@@ -83,18 +85,21 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     let fEntries: WorkEntry[] = [];
     let fAdvances: AdvanceEntry[] = [];
     let fTools: ToolEntry[] = [];
+    let fPonto: PontoEntry[] = [];
     let label = '';
 
     if (reportMode === 'month') {
         fEntries = entries.filter(e => isSameMonth(parseISO(e.date), currentMonthDate));
         fAdvances = advances.filter(a => isSameMonth(parseISO(a.date), currentMonthDate));
         fTools = tools.filter(t => isSameMonth(parseISO(t.date), currentMonthDate));
+        fPonto = ponto.filter(p => isSameMonth(parseISO(p.date), currentMonthDate));
         label = format(currentMonthDate, 'MMMM/yyyy', { locale: ptBR }).toUpperCase();
     } else if (reportMode === 'cycle') {
         const cycleStart = settings.billingCycleStartDate || '2024-12-16';
         fEntries = entries.filter(e => e.date >= cycleStart);
         fAdvances = advances.filter(a => a.date >= cycleStart);
         fTools = tools.filter(t => t.date >= cycleStart);
+        fPonto = ponto.filter(p => p.date >= cycleStart);
         label = `SALDO DESDE ${format(parseISO(cycleStart), 'dd/MM/yyyy')}`;
     } else {
         const start = startOfDay(parseISO(customStartDate));
@@ -102,12 +107,15 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         fEntries = entries.filter(e => isWithinInterval(parseISO(e.date), { start, end }));
         fAdvances = advances.filter(a => isWithinInterval(parseISO(a.date), { start, end }));
         fTools = tools.filter(t => isWithinInterval(parseISO(t.date), { start, end }));
+        fPonto = ponto.filter(p => isWithinInterval(parseISO(p.date), { start, end }));
         label = `${format(start, 'dd/MM/yyyy')} a ${format(end, 'dd/MM/yyyy')}`;
     }
 
     const s: MonthlyStats = {
       daysWorked: 0, daysMissed: 0, grossTotal: 0, totalAdvances: 0, totalFromTools: 0, finalTotal: 0,
       totalFromDays: 0, totalFromOvertime: 0, totalFromExtraServices: 0,
+      pontoMinutesOwed: 0,
+      pontoDiscountValue: 0
     };
 
     fEntries.forEach(e => {
@@ -120,10 +128,17 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
       if (e.overtimeValue) s.totalFromOvertime += e.overtimeValue;
     });
 
+    const totalDelayMinutes = fPonto.reduce((acc, curr) => acc + curr.totalDelay, 0);
+    const pontoMinutesOwed = totalDelayMinutes > 0 ? totalDelayMinutes : 0;
+    const pontoDiscountValue = totalDelayMinutes > 0 ? totalDelayMinutes * (75 / 450) : 0;
+
+    s.pontoMinutesOwed = pontoMinutesOwed;
+    s.pontoDiscountValue = pontoDiscountValue;
+
     s.grossTotal = s.totalFromDays + s.totalFromOvertime + s.totalFromExtraServices;
     s.totalAdvances = fAdvances.reduce((acc, curr) => acc + curr.amount, 0);
     s.totalFromTools = fTools.reduce((acc, curr) => acc + curr.amount, 0);
-    s.finalTotal = (s.grossTotal + s.totalFromTools) - s.totalAdvances;
+    s.finalTotal = (s.grossTotal + s.totalFromTools) - s.totalAdvances - pontoDiscountValue;
 
     return { 
         monthlyEntries: fEntries.sort((a,b) => a.date.localeCompare(b.date)), 
@@ -132,7 +147,7 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
         stats: s, 
         periodLabel: label 
     };
-  }, [currentMonthDate, customStartDate, customEndDate, reportMode, entries, advances, tools, settings.billingCycleStartDate]);
+  }, [currentMonthDate, customStartDate, customEndDate, reportMode, entries, advances, tools, ponto, settings.billingCycleStartDate]);
 
   const allItems = useMemo(() => [
         ...monthlyEntries.map(i => ({...i, itemType: 'work'})),
@@ -196,6 +211,9 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
                  `*Total Bruto:* R$ ${stats.grossTotal.toFixed(2)}\n` +
                  `*Ferramentas:* + R$ ${stats.totalFromTools.toFixed(2)}\n` +
                  `*Vales/Adiant.:* - R$ ${stats.totalAdvances.toFixed(2)}\n` +
+                 (stats.pontoMinutesOwed && stats.pontoMinutesOwed > 0 
+                     ? `*Atraso Ponto:* - R$ ${stats.pontoDiscountValue?.toFixed(2)} (${stats.pontoMinutesOwed} min)\n` 
+                     : '') +
                  `---------------------------\n` +
                  `*LÍQUIDO A RECEBER: R$ ${stats.finalTotal.toFixed(2)}*\n` +
                  `---------------------------\n` +
@@ -251,8 +269,15 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
     doc.text(`Total Bruto: R$ ${stats.grossTotal.toFixed(2)}`, 14, finalY + 10);
     doc.text(`Ferramentas: + R$ ${stats.totalFromTools.toFixed(2)}`, 14, finalY + 20);
     doc.text(`Total Vales: - R$ ${stats.totalAdvances.toFixed(2)}`, 14, finalY + 30);
+    
+    let currentY = finalY + 30;
+    if (stats.pontoMinutesOwed && stats.pontoMinutesOwed > 0) {
+        currentY += 10;
+        doc.text(`Desconto Atraso Ponto: - R$ ${stats.pontoDiscountValue?.toFixed(2)} (${stats.pontoMinutesOwed} min)`, 14, currentY);
+    }
+    
     doc.setFontSize(14);
-    doc.text(`LÍQUIDO: R$ ${stats.finalTotal.toFixed(2)}`, 14, finalY + 45);
+    doc.text(`LÍQUIDO: R$ ${stats.finalTotal.toFixed(2)}`, 14, currentY + 15);
     
     doc.save(`Relatorio_${periodLabel.replace(/\s/g, '_')}.pdf`);
   };
@@ -330,7 +355,7 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
           </div>
       ) : (
           <>
-            <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3">
           <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-800">
              <p className="text-xs font-bold text-emerald-600 uppercase">Bruto</p>
              <p className="text-xl font-bold text-emerald-700 dark:text-emerald-300">R$ {stats.grossTotal.toFixed(2)}</p>
@@ -343,7 +368,13 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
              <p className="text-xs font-bold text-rose-600 uppercase">Vales</p>
              <p className="text-xl font-bold text-rose-700 dark:text-rose-300">- {stats.totalAdvances.toFixed(2)}</p>
           </div>
-          <div className="bg-gradient-to-r from-violet-600 to-indigo-600 p-5 rounded-2xl text-white shadow-lg relative overflow-hidden col-span-1">
+          {stats.pontoMinutesOwed && stats.pontoMinutesOwed > 0 ? (
+            <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-2xl border border-amber-100 dark:border-amber-800">
+               <p className="text-xs font-bold text-amber-600 uppercase">Atrasos de Ponto</p>
+               <p className="text-xl font-bold text-amber-700 dark:text-amber-300">-{stats.pontoMinutesOwed} min (R$ {stats.pontoDiscountValue?.toFixed(2)})</p>
+            </div>
+          ) : null}
+          <div className={`bg-gradient-to-r from-violet-600 to-indigo-600 p-5 rounded-2xl text-white shadow-lg relative overflow-hidden ${stats.pontoMinutesOwed && stats.pontoMinutesOwed > 0 ? 'col-span-2' : 'col-span-1'}`}>
              <div className="absolute right-[-10%] top-[-20%] opacity-10 bg-white rounded-full w-32 h-32 blur-xl"></div>
              <p className="text-xs font-bold text-indigo-100 uppercase mb-1">LÍQUIDO</p>
              <p className="text-2xl font-extrabold tracking-tight">R$ {stats.finalTotal.toFixed(2)}</p>

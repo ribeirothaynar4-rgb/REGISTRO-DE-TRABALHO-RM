@@ -1,18 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Home, DollarSign, FileBarChart, Settings, CloudDownload, Wrench } from 'lucide-react';
+import { Home, DollarSign, FileBarChart, Settings, CloudDownload, Wrench, Clock } from 'lucide-react';
 import HomeTab from './components/HomeTab';
 import AdvancesTab from './components/AdvancesTab';
 import ReportsTab from './components/ReportsTab';
 import SettingsTab from './components/SettingsTab';
 import ExpensesTab from './components/ExpensesTab'; // Added ExpensesTab
 import ToolsTab from './components/ToolsTab'; // Added ToolsTab
+import PontoTab from './components/PontoTab'; // Added PontoTab
 import AuthPage from './components/AuthPage';
 import { getSettings, getLastNotificationDate, setLastNotificationDate, getWorkEntries, fetchAllFromSupabase, clearLocalData } from './services/storageService';
 import { UserSettings, WorkStatus } from './types';
 import { format } from 'date-fns';
 import { supabase } from './services/supabaseClient';
 
-type Tab = 'home' | 'advances' | 'reports' | 'settings' | 'expenses' | 'tools';
+type Tab = 'home' | 'advances' | 'reports' | 'settings' | 'expenses' | 'tools' | 'ponto';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
@@ -150,6 +151,7 @@ const App: React.FC = () => {
       case 'settings': return <SettingsTab settings={settings} onSave={handleSettingsUpdate} onLogout={handleLogout} />;
       case 'expenses': return <ExpensesTab onUpdate={handleDataUpdate} />; // Added ExpensesTab
       case 'tools': return <ToolsTab onUpdate={handleDataUpdate} />; // Added ToolsTab
+      case 'ponto': return <PontoTab onUpdate={handleDataUpdate} />; // Added PontoTab
       default: return null;
     }
   };
@@ -157,7 +159,7 @@ const App: React.FC = () => {
   const NavButton: React.FC<{ tabName: Tab; icon: React.ElementType; label: string }> = ({ tabName, icon: Icon, label }) => (
     <button
       onClick={() => setActiveTab(tabName)}
-      className={`flex flex-col items-center p-2 rounded-xl transition-all w-[16%] ${
+      className={`flex flex-col items-center p-1 rounded-xl transition-all w-[13.5%] ${
         activeTab === tabName 
           ? 'text-violet-600 bg-violet-50 dark:bg-violet-900/30 dark:text-violet-300 font-bold scale-105' 
           : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'
@@ -183,6 +185,7 @@ const App: React.FC = () => {
            <NavButton tabName="expenses" icon={({className}) => (
              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
            )} label="Despesas" />
+          <NavButton tabName="ponto" icon={Clock} label="Ponto" />
           <NavButton tabName="reports" icon={FileBarChart} label="Relatórios" />
           <NavButton tabName="settings" icon={Settings} label="Ajustes" />
         </div>
