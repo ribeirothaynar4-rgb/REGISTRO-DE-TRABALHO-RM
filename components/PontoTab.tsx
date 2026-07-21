@@ -43,6 +43,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
   const [morningExit, setMorningExit] = useState<string>('12:00');
   const [afternoonArrival, setAfternoonArrival] = useState<string>('13:30');
   const [afternoonExit, setAfternoonExit] = useState<string>('17:00');
+  const [schoolMinutes, setSchoolMinutes] = useState<number>(0);
   const [isSaved, setIsSaved] = useState(false);
   const [entries, setEntries] = useState<PontoEntry[]>(getPontoEntries());
 
@@ -54,11 +55,13 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
       setMorningExit(existingEntry.morningExit || '12:00');
       setAfternoonArrival(existingEntry.afternoonArrival || '13:30');
       setAfternoonExit(existingEntry.afternoonExit || '17:00');
+      setSchoolMinutes(existingEntry.schoolMinutes || 0);
     } else {
       setMorningArrival('08:00');
       setMorningExit('12:00');
       setAfternoonArrival('13:30');
       setAfternoonExit('17:00');
+      setSchoolMinutes(0);
     }
     setIsSaved(false);
   }, [selectedDate, entries]);
@@ -86,7 +89,8 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
     const aExitActualMin = parseTimeToMinutes(afternoonExit);
     const aExitDelay = aExitTargetMin - aExitActualMin; // positivo se saiu mais cedo, negativo se extra
 
-    const totalDelay = mArrivalDelay + mExitDelay + aArrivalDelay + aExitDelay;
+    const baseDelay = mArrivalDelay + mExitDelay + aArrivalDelay + aExitDelay;
+    const totalDelay = baseDelay + schoolMinutes;
     const valueEquivalent = totalDelay * RATE_PER_MINUTE;
 
     const entry: PontoEntry = {
@@ -100,6 +104,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
       morningExitDelay: mExitDelay,
       afternoonDelay: aArrivalDelay,
       afternoonExitDelay: aExitDelay,
+      schoolMinutes,
       totalDelay,
       valueEquivalent
     };
@@ -175,11 +180,18 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
         afternoonExitVal = dayEntry.afternoonExit || '-';
         
         const delay = dayEntry.totalDelay;
+        const schoolMin = dayEntry.schoolMinutes || 0;
         if (delay > 0) {
           statusText = `Atraso: +${delay} min`;
+          if (schoolMin > 0) {
+            statusText += ` (Filho: +${schoolMin}m)`;
+          }
           totalMinutesOwed += delay;
         } else if (delay < 0) {
           statusText = `Extra: ${delay} min`;
+          if (schoolMin > 0) {
+            statusText += ` (Filho: +${schoolMin}m)`;
+          }
           totalMinutesExtra += Math.abs(delay);
         } else {
           statusText = 'No horário';
@@ -321,7 +333,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
   const selectedMorningExitDiff = parseTimeToMinutes(TARGET_LUNCH_OUT) - parseTimeToMinutes(morningExit);
   const selectedAfternoonArrivalDiff = parseTimeToMinutes(afternoonArrival) - parseTimeToMinutes(TARGET_LUNCH_IN);
   const selectedAfternoonExitDiff = parseTimeToMinutes(TARGET_AFTERNOON_OUT) - parseTimeToMinutes(afternoonExit);
-  const selectedTotalDiff = selectedMorningArrivalDiff + selectedMorningExitDiff + selectedAfternoonArrivalDiff + selectedAfternoonExitDiff;
+  const selectedTotalDiff = selectedMorningArrivalDiff + selectedMorningExitDiff + selectedAfternoonArrivalDiff + selectedAfternoonExitDiff + schoolMinutes;
   const selectedValueDiff = selectedTotalDiff * RATE_PER_MINUTE;
 
   return (
@@ -511,6 +523,32 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
           </div>
         </div>
 
+        {/* Saída para Buscar Filho na Escola */}
+        <div className="bg-amber-50/45 dark:bg-amber-950/10 p-3.5 rounded-xl border border-amber-100 dark:border-amber-900/30">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <span className="text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                Saída para buscar o filho na escola
+              </span>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                Os minutos informados aqui serão somados como tempo de atraso/devido no dia de hoje.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 self-end sm:self-center">
+              <input
+                type="number"
+                min="0"
+                value={schoolMinutes || ''}
+                onChange={(e) => setSchoolMinutes(Math.max(0, parseInt(e.target.value) || 0))}
+                placeholder="0"
+                className="w-20 text-center bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/50 rounded-lg p-1.5 font-bold text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+              />
+              <span className="text-xs font-bold text-slate-600 dark:text-slate-400">minutos</span>
+            </div>
+          </div>
+        </div>
+
         {/* CÁLCULO PRÉVIO DO DIA */}
         <div className="bg-slate-50 dark:bg-slate-950/50 p-3 rounded-xl border border-slate-100 dark:border-slate-900 flex justify-between items-center text-xs">
           <div className="flex items-center gap-1.5">
@@ -598,7 +636,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
                           </span>
                         </div>
                         <p className="text-[10px] text-slate-400">
-                          Alvos: 08:00, 12:00, 13:30 e 17:00
+                          Alvos: 08:00, 12:00, 13:30 e 17:00 {entry.schoolMinutes && entry.schoolMinutes > 0 ? `| Busca Filho: +${entry.schoolMinutes} min` : ''}
                         </p>
                       </div>
                     </div>

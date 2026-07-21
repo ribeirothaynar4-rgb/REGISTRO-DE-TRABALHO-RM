@@ -89,6 +89,7 @@ export interface PontoEntry {
   morningExitDelay: number; // minutos de saída antecipada (positivo = devendo, negativo = extra)
   afternoonDelay: number; // minutos de atraso no retorno (positivo = devendo, negativo = adiantado)
   afternoonExitDelay: number; // minutos de saída antecipada (positivo = devendo, negativo = extra)
-  totalDelay: number; // soma dos 4 desvios
+  totalDelay: number; // soma dos 4 desvios + outros atrasos (ex: busca do filho)
   valueEquivalent: number; // totalDelay * (75 / 450)
+  schoolMinutes?: number; // minutos extras gastos buscando o filho na escola
 }
