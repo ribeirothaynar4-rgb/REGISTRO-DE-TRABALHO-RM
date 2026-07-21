@@ -104,7 +104,14 @@ export const getCycleHistory = (): CycleHistory[] => {
 export const getPontoEntries = (): PontoEntry[] => {
   try {
     const data = localStorage.getItem(KEYS.PONTO_ENTRIES);
-    return data ? JSON.parse(data) : [];
+    const parsed = data ? JSON.parse(data) : [];
+    return parsed.map((p: any) => ({
+      morningExit: '12:00',
+      afternoonExit: '17:00',
+      morningExitDelay: 0,
+      afternoonExitDelay: 0,
+      ...p
+    }));
   } catch { return []; }
 };
 

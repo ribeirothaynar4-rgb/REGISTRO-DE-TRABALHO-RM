@@ -82,9 +82,13 @@ export interface PontoEntry {
   id: string;
   date: string; // ISO string YYYY-MM-DD
   morningArrival: string; // "HH:MM" e.g., "08:05"
+  morningExit: string; // "HH:MM" e.g., "12:00"
   afternoonArrival: string; // "HH:MM" e.g., "13:35"
-  morningDelay: number; // minutos de atraso (positivo = devendo, negativo = adiantado)
-  afternoonDelay: number; // minutos de atraso (positivo = devendo, negativo = adiantado)
-  totalDelay: number; // morningDelay + afternoonDelay
-  valueEquivalent: number; // totalDelay * (75 / 480)
+  afternoonExit: string; // "HH:MM" e.g., "17:00"
+  morningDelay: number; // minutos de atraso na entrada (positivo = devendo, negativo = adiantado)
+  morningExitDelay: number; // minutos de saída antecipada (positivo = devendo, negativo = extra)
+  afternoonDelay: number; // minutos de atraso no retorno (positivo = devendo, negativo = adiantado)
+  afternoonExitDelay: number; // minutos de saída antecipada (positivo = devendo, negativo = extra)
+  totalDelay: number; // soma dos 4 desvios
+  valueEquivalent: number; // totalDelay * (75 / 450)
 }
