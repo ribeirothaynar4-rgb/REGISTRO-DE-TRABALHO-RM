@@ -9,6 +9,7 @@ import autoTable from 'jspdf-autotable';
 import { UserSettings, WorkEntry, WorkStatus, AdvanceEntry, MonthlyStats, ToolEntry, PontoEntry } from '../types';
 import { getWorkEntries, getAdvances, deleteWorkEntry, deleteAdvance, getTools, deleteTool, getCycleHistory, deleteCycleHistory, getPontoEntries } from '../services/storageService';
 import { Card } from './ui/Card';
+import { calculateDayDetails } from './PontoTab';
 
 interface ReportsTabProps {
   settings: UserSettings;
@@ -128,9 +129,21 @@ const ReportsTab: React.FC<ReportsTabProps> = ({ settings, onEdit, dataVersion }
       if (e.overtimeValue) s.totalFromOvertime += e.overtimeValue;
     });
 
-    const totalDelayMinutes = fPonto.reduce((acc, curr) => acc + curr.totalDelay, 0);
-    const pontoMinutesOwed = totalDelayMinutes > 0 ? totalDelayMinutes : 0;
-    const pontoDiscountValue = totalDelayMinutes > 0 ? totalDelayMinutes * (75 / 450) : 0;
+    const pontoCalculated = fPonto.reduce((acc, curr) => {
+      const details = calculateDayDetails(
+        curr.morningArrival,
+        curr.morningExit,
+        curr.afternoonArrival,
+        curr.afternoonExit,
+        curr.schoolMinutes || 0
+      );
+      acc.saldoMinutos += details.saldoMinutos;
+      acc.desconto += details.descontoDia;
+      return acc;
+    }, { saldoMinutos: 0, desconto: 0 });
+
+    const pontoMinutesOwed = pontoCalculated.saldoMinutos < 0 ? Math.abs(pontoCalculated.saldoMinutos) : 0;
+    const pontoDiscountValue = pontoCalculated.desconto;
 
     s.pontoMinutesOwed = pontoMinutesOwed;
     s.pontoDiscountValue = pontoDiscountValue;
