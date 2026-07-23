@@ -85,8 +85,13 @@ export const calculateDayDetails = (
   const atrasos = atrasoEntrada + atrasoSaidaAlmoco + atrasoVoltaAlmoco + atrasoSaidaTarde;
   const buscarFilho = Math.max(0, schoolMin || 0);
 
-  // Crédito de permanência (tempo trabalhado após as 17:00)
-  const creditoPermanencia = Math.max(0, aExtMin - targetAExt);
+  // Crédito de permanência (tempo extra trabalhado além dos horários previstos da jornada)
+  const creditoManhaEntrada = Math.max(0, targetMArr - mArrMin);
+  const creditoManhaSaida = Math.max(0, mExtMin - targetMExt);
+  const creditoTardeEntrada = Math.max(0, targetAArr - aArrMin);
+  const creditoTardeSaida = Math.max(0, aExtMin - targetAExt);
+
+  const creditoPermanencia = creditoManhaEntrada + creditoManhaSaida + creditoTardeEntrada + creditoTardeSaida;
 
   // Tempo considerado para pagamento = Tempo registrado - Atrasos - Buscar filho
   const tempoConsiderado = Math.max(0, tempoRegistrado - atrasos - buscarFilho);
@@ -480,7 +485,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
 
       doc.setFont('Helvetica', 'normal');
       doc.setTextColor(120, 53, 15);
-      const ruleNoteText = 'O saldo do banco de horas é calculado utilizando apenas os créditos obtidos pela permanência após o horário previsto de saída, descontando os atrasos e o tempo utilizado para buscar o filho. O Tempo Considerado para Pagamento possui finalidade exclusivamente financeira e não participa do cálculo do banco de horas.';
+      const ruleNoteText = 'O saldo do banco de horas é calculado utilizando os créditos obtidos pela permanência trabalhando além dos horários previstos da jornada (como sair para o almoço após as 12:00 ou após as 17:00), descontando os atrasos e o tempo utilizado para buscar o filho. O Tempo Considerado para Pagamento possui finalidade exclusivamente financeira e não participa do cálculo do banco de horas.';
       const splitRuleText = doc.splitTextToSize(ruleNoteText, 260);
       doc.text(splitRuleText, 18, currentY + 7.5);
 
@@ -941,7 +946,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
               📌 Regra oficial do cálculo:
             </span>
             <p>
-              "O saldo do banco de horas é calculado utilizando apenas os créditos obtidos pela permanência após o horário previsto de saída, descontando os atrasos e o tempo utilizado para buscar o filho. O Tempo Considerado para Pagamento possui finalidade exclusivamente financeira e não participa do cálculo do banco de horas."
+              "O saldo do banco de horas é calculado utilizando os créditos obtidos pela permanência trabalhando além dos horários previstos da jornada (como sair para o almoço após as 12:00 ou trabalhar após as 17:00), descontando os atrasos e o tempo utilizado para buscar o filho. O Tempo Considerado para Pagamento possui finalidade exclusivamente financeira e não participa do cálculo do banco de horas."
             </p>
           </div>
         </div>
