@@ -61,59 +61,93 @@ export const calculateDayDetails = (
   aExit: string,
   schoolMin: number = 0
 ): DayCalculationDetails => {
-  const mArrMin = parseTimeToMinutes(mArrival || TARGET_MORNING);
-  const mExtMin = parseTimeToMinutes(mExit || TARGET_LUNCH_OUT);
-  const aArrMin = parseTimeToMinutes(aArrival || TARGET_LUNCH_IN);
-  const aExtMin = parseTimeToMinutes(aExit || TARGET_AFTERNOON_OUT);
-
   const targetMArr = parseTimeToMinutes(TARGET_MORNING); // 480 (08:00)
   const targetMExt = parseTimeToMinutes(TARGET_LUNCH_OUT); // 720 (12:00)
   const targetAArr = parseTimeToMinutes(TARGET_LUNCH_IN); // 810 (13:30)
   const targetAExt = parseTimeToMinutes(TARGET_AFTERNOON_OUT); // 1020 (17:00)
 
   // Tempo registrado bruto (tempo trabalhado de manha + tempo trabalhado a tarde)
-  const morningWorked = Math.max(0, mExtMin - mArrMin);
-  const afternoonWorked = Math.max(0, aExtMin - aArrMin);
+  let morningWorked = 0;
+  if (mArrival && mExit) {
+    morningWorked = Math.max(0, parseTimeToMinutes(mExit) - parseTimeToMinutes(mArrival));
+  }
+  
+  let afternoonWorked = 0;
+  if (aArrival && aExit) {
+    afternoonWorked = Math.max(0, parseTimeToMinutes(aExit) - parseTimeToMinutes(aArrival));
+  }
+  
   const tempoRegistrado = morningWorked + afternoonWorked;
 
   // Atrasos e saídas antecipadas
-  const atrasoEntrada = Math.max(0, mArrMin - targetMArr);
-  const atrasoSaidaAlmoco = Math.max(0, targetMExt - mExtMin);
-  const atrasoVoltaAlmoco = Math.max(0, aArrMin - targetAArr);
-  const atrasoSaidaTarde = Math.max(0, targetAExt - aExtMin);
+  let atrasoEntrada = 0;
+  let atrasoSaidaAlmoco = 0;
+  let creditoManhaEntrada = 0;
+  let creditoManhaSaida = 0;
+
+  if (mArrival) {
+    const arr = parseTimeToMinutes(mArrival);
+    atrasoEntrada = Math.max(0, arr - targetMArr);
+    creditoManhaEntrada = Math.max(0, targetMArr - arr);
+  }
+
+  if (mExit) {
+    const ext = parseTimeToMinutes(mExit);
+    atrasoSaidaAlmoco = Math.max(0, targetMExt - ext);
+    creditoManhaSaida = Math.max(0, ext - targetMExt);
+  }
+
+  let atrasoVoltaAlmoco = 0;
+  let atrasoSaidaTarde = 0;
+  let creditoTardeEntrada = 0;
+  let creditoTardeSaida = 0;
+
+  if (aArrival) {
+    const arr = parseTimeToMinutes(aArrival);
+    atrasoVoltaAlmoco = Math.max(0, arr - targetAArr);
+    creditoTardeEntrada = Math.max(0, targetAArr - arr);
+  }
+
+  if (aExit) {
+    const ext = parseTimeToMinutes(aExit);
+    atrasoSaidaTarde = Math.max(0, targetAExt - ext);
+    creditoTardeSaida = Math.max(0, ext - targetAExt);
+  }
 
   const atrasos = atrasoEntrada + atrasoSaidaAlmoco + atrasoVoltaAlmoco + atrasoSaidaTarde;
   const buscarFilho = Math.max(0, schoolMin || 0);
 
   // Crédito de permanência (tempo extra trabalhado além dos horários previstos da jornada)
-  const creditoManhaEntrada = Math.max(0, targetMArr - mArrMin);
-  const creditoManhaSaida = Math.max(0, mExtMin - targetMExt);
-  const creditoTardeEntrada = Math.max(0, targetAArr - aArrMin);
-  const creditoTardeSaida = Math.max(0, aExtMin - targetAExt);
-
   const creditoPermanencia = creditoManhaEntrada + creditoManhaSaida + creditoTardeEntrada + creditoTardeSaida;
 
-  // Tempo considerado para pagamento = Tempo registrado - Atrasos - Buscar filho
-  const tempoConsiderado = Math.max(0, tempoRegistrado - atrasos - buscarFilho);
+  // Tempo considerado para pagamento = Tempo registrado - Buscar filho (atrasos já não estão no tempo registrado)
+  const tempoConsiderado = Math.max(0, tempoRegistrado - buscarFilho);
 
   // Saldo do banco de horas no dia = Créditos - Atrasos - Buscar filho
   const saldoMinutos = creditoPermanencia - atrasos - buscarFilho;
 
-  // Desconto financeiro do dia
-  const descontoDia = saldoMinutos < 0 ? Math.abs(saldoMinutos) * RATE_PER_MINUTE : 0;
+  let expectedMinutes = 0;
+  if (mArrival || mExit) {
+    expectedMinutes += (targetMExt - targetMArr); // 240 min (Manhã)
+  }
+  if (aArrival || aExit) {
+    expectedMinutes += (targetAExt - targetAArr); // 210 min (Tarde)
+  }
+
+  // Desconto financeiro do dia = Tempo que faltou para completar a jornada daquele período
+  const missingMinutes = Math.max(0, expectedMinutes - tempoConsiderado);
+  const descontoDia = missingMinutes * RATE_PER_MINUTE;
 
   // Texto explicativo
   let explicacao = `Saldo do Banco: +${creditoPermanencia}m (crédito permanência) - ${atrasos}m (atrasos) - ${buscarFilho}m (buscar filho) = ${saldoMinutos < 0 ? `-${Math.abs(saldoMinutos)} min` : `+${saldoMinutos} min`}. `;
-  if (saldoMinutos < 0) {
-    explicacao += `Gera desconto diário de R$ ${descontoDia.toFixed(2).replace('.', ',')}.`;
-  } else if (saldoMinutos > 0) {
-    explicacao += `Sem descontos no salário. Crédito acumulado no banco de horas.`;
+  if (missingMinutes > 0) {
+    explicacao += `Faltou ${missingMinutes}m para a jornada de ${formatMinutesToHuman(expectedMinutes)}, gerando desconto diário de R$ ${descontoDia.toFixed(2).replace('.', ',')}.`;
   } else {
-    explicacao += `Jornada e créditos em perfeito equilíbrio (saldo 0 min). Sem descontos.`;
+    explicacao += `Jornada completa. Sem descontos financeiros no salário.`;
   }
 
   return {
-    jornadaPrevista: TARGET_DAILY_MINUTES,
+    jornadaPrevista: expectedMinutes,
     tempoRegistrado,
     atrasoEntrada,
     atrasoSaidaAlmoco,
@@ -144,10 +178,10 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
   useEffect(() => {
     const existingEntry = entries.find(e => e.date === selectedDate);
     if (existingEntry) {
-      setMorningArrival(existingEntry.morningArrival || '08:00');
-      setMorningExit(existingEntry.morningExit || '12:00');
-      setAfternoonArrival(existingEntry.afternoonArrival || '13:30');
-      setAfternoonExit(existingEntry.afternoonExit || '17:00');
+      setMorningArrival(existingEntry.morningArrival !== undefined ? existingEntry.morningArrival : '08:00');
+      setMorningExit(existingEntry.morningExit !== undefined ? existingEntry.morningExit : '12:00');
+      setAfternoonArrival(existingEntry.afternoonArrival !== undefined ? existingEntry.afternoonArrival : '13:30');
+      setAfternoonExit(existingEntry.afternoonExit !== undefined ? existingEntry.afternoonExit : '17:00');
       setSchoolMinutes(existingEntry.schoolMinutes || 0);
     } else {
       setMorningArrival('08:00');
@@ -200,20 +234,16 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
   };
 
   const handleDelete = (id: string) => {
-    if (confirm('Tem certeza que deseja excluir o registro de ponto deste dia?')) {
-      deletePontoEntry(id);
-      refreshEntries();
-    }
+    deletePontoEntry(id);
+    refreshEntries();
   };
 
   const handleResetTimeBank = () => {
-    if (confirm('Atenção: Isso irá apagar permanentemente todos os registros de ponto do seu banco de horas. Deseja continuar?')) {
-      entries.forEach(e => deletePontoEntry(e.id));
-      refreshEntries();
-    }
+    entries.forEach(e => deletePontoEntry(e.id));
+    refreshEntries();
   };
 
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = (detailed: boolean = true, showEarnings: boolean = false) => {
     if (!selectedPdfMonth) return;
     
     const [yearStr, monthStr] = selectedPdfMonth.split('-');
@@ -231,6 +261,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
     const totalDays = new Date(yearInt, monthInt, 0).getDate();
     const tableRows: any[] = [];
     const detailRows: any[] = [];
+    const rawDetailRows: { row: any[], hasCredit: boolean, hasDiscount: boolean }[] = [];
     
     const getDayNamePT = (dayIndex: number): string => {
       const days = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -265,7 +296,6 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
       const dayEntry = monthEntries.find(e => e.date === fullDateStr);
       
       if (dayEntry) {
-        totalDiasTrabalhados++;
         const details = calculateDayDetails(
           dayEntry.morningArrival,
           dayEntry.morningExit,
@@ -273,6 +303,14 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
           dayEntry.afternoonExit,
           dayEntry.schoolMinutes || 0
         );
+
+        let dayFraction = 0;
+        if (dayEntry.morningArrival || dayEntry.morningExit) dayFraction += 0.5;
+        if (dayEntry.afternoonArrival || dayEntry.afternoonExit) dayFraction += 0.5;
+        
+        if (dayFraction > 0) {
+          totalDiasTrabalhados += dayFraction;
+        }
 
         sumJornadaPrevista += details.jornadaPrevista;
         sumTempoRegistrado += details.tempoRegistrado;
@@ -284,20 +322,25 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
         totalDescontoFinanceiro += details.descontoDia;
 
         let statusCell = 'No horário';
-        if (details.saldoMinutos < 0) {
-          statusCell = `Desc. R$ ${details.descontoDia.toFixed(2).replace('.', ',')}`;
-        } else if (details.saldoMinutos > 0) {
-          statusCell = `+${formatMinutesToHuman(details.saldoMinutos)} crédito`;
+        if (showEarnings) {
+          const dailyEarning = (details.jornadaPrevista * RATE_PER_MINUTE) - details.descontoDia;
+          statusCell = `R$ ${dailyEarning.toFixed(2).replace('.', ',')}`;
+        } else {
+          if (details.descontoDia > 0) {
+            statusCell = `Desc. R$ ${details.descontoDia.toFixed(2).replace('.', ',')}`;
+          } else if (details.saldoMinutos > 0) {
+            statusCell = `+${formatMinutesToHuman(details.saldoMinutos)} banco`;
+          }
         }
 
         tableRows.push([
           dayStr,
           dayOfWeekName,
-          dayEntry.morningArrival || '08:00',
-          dayEntry.morningExit || '12:00',
-          dayEntry.afternoonArrival || '13:30',
-          dayEntry.afternoonExit || '17:00',
-          '07h 30min',
+          dayEntry.morningArrival || '-',
+          dayEntry.morningExit || '-',
+          dayEntry.afternoonArrival || '-',
+          dayEntry.afternoonExit || '-',
+          formatMinutesToHuman(details.jornadaPrevista),
           formatMinutesToHuman(details.tempoRegistrado),
           details.atrasos > 0 ? `${details.atrasos}m` : '0m',
           details.buscarFilho > 0 ? `${details.buscarFilho}m` : '0m',
@@ -307,14 +350,26 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
           statusCell
         ]);
 
-        detailRows.push([
-          `${dayStr}/${monthStr} (${fullDayOfWeekName})`,
-          `${dayEntry.morningArrival || '08:00'} - ${dayEntry.morningExit || '12:00'} | ${dayEntry.afternoonArrival || '13:30'} - ${dayEntry.afternoonExit || '17:00'}`,
-          `Crédito permanência: +${details.creditoPermanencia}m\nAtrasos: -${details.atrasos}m | Buscar filho: -${details.buscarFilho}m\nSaldo banco: ${details.saldoMinutos < 0 ? `-${Math.abs(details.saldoMinutos)} min` : `+${details.saldoMinutos} min`}`,
-          `Considerado: ${formatMinutesToHuman(details.tempoConsiderado)}\n(${details.tempoRegistrado}m reg. - ${details.atrasos}m - ${details.buscarFilho}m)`,
-          details.saldoMinutos < 0 ? `Saldo: -${Math.abs(details.saldoMinutos)}min\n(Desc. R$ ${details.descontoDia.toFixed(2).replace('.', ',')})` : `Saldo: +${details.saldoMinutos}min\n(Sem desconto)`
-        ]);
+        let detailSaldoText = `Saldo Banco: ${details.saldoMinutos > 0 ? '+' : ''}${details.saldoMinutos} min\n`;
+        if (details.descontoDia > 0) {
+           detailSaldoText += `Faltas (R$ -${details.descontoDia.toFixed(2).replace('.', ',')})`;
+        } else {
+           detailSaldoText += `(Jornada completa)`;
+        }
 
+        const rowData = [
+          `${dayStr}/${monthStr} (${fullDayOfWeekName})`,
+          `${dayEntry.morningArrival || '-'} às ${dayEntry.morningExit || '-'}\n${dayEntry.afternoonArrival || '-'} às ${dayEntry.afternoonExit || '-'}`,
+          `[+] Crédito permanência: ${details.creditoPermanencia} min\n[-] Atrasos: ${details.atrasos} min\n[-] Buscar filho: ${details.buscarFilho} min\n(=) Saldo final: ${details.saldoMinutos < 0 ? `-${Math.abs(details.saldoMinutos)} min` : `+${details.saldoMinutos} min`}`,
+          `Tempo registrado: ${formatMinutesToHuman(details.tempoRegistrado)}\nAbatimentos (Filho): -${details.buscarFilho} min\nTotal Considerado: ${formatMinutesToHuman(details.tempoConsiderado)}`,
+          detailSaldoText
+        ];
+        detailRows.push(rowData);
+        rawDetailRows.push({
+          row: rowData,
+          hasCredit: details.saldoMinutos > 0,
+          hasDiscount: details.descontoDia > 0
+        });
       } else {
         let textStatus = 'Sem registro';
         if (dayOfWeekIndex === 0) textStatus = 'DOMINGO';
@@ -341,6 +396,20 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
     
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const primaryColor: [number, number, number] = [108, 62, 244]; // #6C3EF4 Roxo principal
+    
+    let finalDetailRows = detailRows;
+    if (showEarnings) {
+      const exampleCredit = rawDetailRows.find(r => r.hasCredit);
+      const exampleDiscount = rawDetailRows.find(r => r.hasDiscount);
+      finalDetailRows = [];
+      if (exampleCredit) finalDetailRows.push(exampleCredit.row);
+      if (exampleDiscount && exampleDiscount !== exampleCredit) finalDetailRows.push(exampleDiscount.row);
+      if (finalDetailRows.length === 0) {
+        finalDetailRows = detailRows.slice(-2);
+      }
+    } else if (!detailed && finalDetailRows.length > 2) {
+      finalDetailRows = finalDetailRows.slice(-2);
+    }
     
     // CABEÇALHO PROFISSIONAL
     doc.setFillColor(108, 62, 244);
@@ -393,7 +462,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
     // TABELA PRINCIPAL
     autoTable(doc, {
       startY: 49,
-      head: [['Data', 'Dia', 'Entrada', 'S. Almoço', 'V. Almoço', 'Saída', 'J. Prevista', 'T. Registrado', 'Atrasos', 'Buscar Filho', 'Créditos', 'T. Considerado', 'Saldo', 'Situação / Desconto']],
+      head: [['Data', 'Dia', 'Entrada', 'S. Almoço', 'V. Almoço', 'Saída', 'J. Prevista', 'T. Registrado', 'Atrasos', 'Buscar Filho', 'Créditos', 'T. Considerado', 'Saldo', showEarnings ? 'Ganhos (R$)' : 'Situação / Desconto']],
       body: tableRows,
       theme: 'grid',
       headStyles: { 
@@ -423,13 +492,25 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
       didParseCell: (data) => {
         if (data.section === 'body') {
           const val = data.cell.text[0];
+          
+          // Cores para Situação / Desconto
           if (val.startsWith('Desc.')) {
             data.cell.styles.textColor = [220, 38, 38]; // Vermelho
-          } else if (val.includes('crédito')) {
+          } else if (val.includes('crédito') || val.includes('banco')) {
             data.cell.styles.textColor = [22, 163, 74]; // Verde
           } else if (val === 'DOMINGO' || val === 'SÁBADO') {
             data.cell.styles.textColor = [148, 163, 184];
             data.cell.styles.fontStyle = 'italic';
+          }
+          
+          // Cores para Atrasos e Buscar Filho (Vermelho)
+          if ((data.column.index === 8 || data.column.index === 9) && val !== '0m' && val !== '-') {
+             data.cell.styles.textColor = [220, 38, 38];
+          }
+          
+          // Cores para Créditos (Verde)
+          if (data.column.index === 10 && val !== '0m' && val !== '-') {
+             data.cell.styles.textColor = [22, 163, 74];
           }
         }
       }
@@ -438,7 +519,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
     let currentY = (doc as any).lastAutoTable.finalY + 8;
 
     // SEÇÃO DE EXPLICAÇÃO DETALHADA DOS DIAS TRABALHADOS
-    if (detailRows.length > 0) {
+    if (finalDetailRows.length > 0) {
       if (currentY + 40 > 200) {
         doc.addPage();
         currentY = 15;
@@ -447,13 +528,13 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
       doc.setFontSize(10);
       doc.setFont('Helvetica', 'bold');
       doc.setTextColor(108, 62, 244);
-      doc.text('DETALHAMENTO E MEMÓRIA DE CÁLCULO POR DIA TRABALHADO:', 14, currentY);
+      doc.text(detailed ? 'DETALHAMENTO E MEMÓRIA DE CÁLCULO POR DIA TRABALHADO:' : 'EXEMPLO DE DETALHAMENTO DE CÁLCULO (ÚLTIMOS 2 DIAS REGISTRADOS):', 14, currentY);
       currentY += 4;
 
       autoTable(doc, {
         startY: currentY,
         head: [['Data / Dia', 'Horários Registrados', 'Como o Saldo do Banco Foi Calculado', 'Horas p/ Pagamento', 'Saldo do Banco / Status']],
-        body: detailRows,
+        body: finalDetailRows,
         theme: 'striped',
         headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
         styles: { fontSize: 7.5, cellPadding: 2 },
@@ -515,9 +596,9 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
 
     // Coluna 1
     doc.setFont('Helvetica', 'bold');
-    doc.text('Dias Trabalhados no Mês:', 20, currentY + 16);
+    doc.text('Dias com Registro Trabalhado:', 20, currentY + 16);
     doc.setFont('Helvetica', 'normal');
-    doc.text(`${totalDiasTrabalhados} dia(s)`, 65, currentY + 16);
+    doc.text(`${totalDiasTrabalhados} dia(s)`, 72, currentY + 16);
 
     doc.setFont('Helvetica', 'bold');
     doc.text('Jornada Prevista do Mês:', 20, currentY + 22);
@@ -574,11 +655,13 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
     doc.setTextColor(30, 41, 59);
     doc.text(`Valor Bruto (${totalDiasTrabalhados} dias × R$ 75,00): R$ ${valorBrutoDias.toFixed(2).replace('.', ',')}`, 20, currentY + 45);
 
+    const descontoAtraso = sumAtrasos * RATE_PER_MINUTE;
     doc.setTextColor(220, 38, 38);
     doc.text(`(-) Total de Desconto: R$ ${totalDescontoFinanceiro.toFixed(2).replace('.', ',')}`, 125, currentY + 45);
 
     doc.setTextColor(108, 62, 244);
-    doc.text(`(=) Valor Líquido Correspondente: R$ ${valorLiquido.toFixed(2).replace('.', ',')}`, 198, currentY + 45);
+    doc.text(`(=) Valor Líquido: R$ ${valorLiquido.toFixed(2).replace('.', ',')}`, 215, currentY + 45);
+
 
     // ASSINATURAS
     let signatureY = currentY + 62;
@@ -726,11 +809,25 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
               className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-violet-500 text-slate-900 dark:text-white"
             />
             <button
-              onClick={handleDownloadPdf}
+              onClick={() => handleDownloadPdf(false)}
+              className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold px-4 py-2 rounded-lg text-sm transition-colors shadow-sm cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>PDF Resumido</span>
+            </button>
+            <button
+              onClick={() => handleDownloadPdf(true, true)}
+              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors shadow-sm cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>PDF Ganhos Diários</span>
+            </button>
+            <button
+              onClick={() => handleDownloadPdf(true)}
               className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors shadow-sm cursor-pointer"
             >
               <Download className="w-4 h-4" />
-              <span>Baixar PDF</span>
+              <span>PDF Completo</span>
             </button>
           </div>
         </div>
@@ -772,7 +869,10 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
             />
             <div className="flex justify-between items-center text-[10px] text-slate-400 mt-1">
               <span>Alvo: 08:00</span>
-              <button onClick={() => setMorningArrival('08:00')} className="text-violet-500 font-semibold hover:underline">Reset</button>
+              <div className="flex gap-2">
+                <button onClick={() => setMorningArrival('')} className="text-slate-500 font-semibold hover:underline">Limpar</button>
+                <button onClick={() => setMorningArrival('08:00')} className="text-violet-500 font-semibold hover:underline">Reset</button>
+              </div>
             </div>
           </div>
 
@@ -790,7 +890,10 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
             />
             <div className="flex justify-between items-center text-[10px] text-slate-400 mt-1">
               <span>Alvo: 12:00</span>
-              <button onClick={() => setMorningExit('12:00')} className="text-violet-500 font-semibold hover:underline">Reset</button>
+              <div className="flex gap-2">
+                <button onClick={() => setMorningExit('')} className="text-slate-500 font-semibold hover:underline">Limpar</button>
+                <button onClick={() => setMorningExit('12:00')} className="text-violet-500 font-semibold hover:underline">Reset</button>
+              </div>
             </div>
           </div>
 
@@ -808,7 +911,10 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
             />
             <div className="flex justify-between items-center text-[10px] text-slate-400 mt-1">
               <span>Alvo: 13:30</span>
-              <button onClick={() => setAfternoonArrival('13:30')} className="text-violet-500 font-semibold hover:underline">Reset</button>
+              <div className="flex gap-2">
+                <button onClick={() => setAfternoonArrival('')} className="text-slate-500 font-semibold hover:underline">Limpar</button>
+                <button onClick={() => setAfternoonArrival('13:30')} className="text-violet-500 font-semibold hover:underline">Reset</button>
+              </div>
             </div>
           </div>
 
@@ -826,7 +932,10 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
             />
             <div className="flex justify-between items-center text-[10px] text-slate-400 mt-1">
               <span>Alvo: 17:00</span>
-              <button onClick={() => setAfternoonExit('17:00')} className="text-violet-500 font-semibold hover:underline">Reset</button>
+              <div className="flex gap-2">
+                <button onClick={() => setAfternoonExit('')} className="text-slate-500 font-semibold hover:underline">Limpar</button>
+                <button onClick={() => setAfternoonExit('17:00')} className="text-violet-500 font-semibold hover:underline">Reset</button>
+              </div>
             </div>
           </div>
         </div>
@@ -878,7 +987,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
             <div className="bg-white/80 dark:bg-slate-900/80 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
               <span className="text-[10px] text-slate-400 block font-bold">1. Jornada Prevista</span>
-              <span className="font-bold text-slate-800 dark:text-slate-200">7h 30min (450m)</span>
+              <span className="font-bold text-slate-800 dark:text-slate-200">{formatMinutesToHuman(currentDayDetails.jornadaPrevista)} ({currentDayDetails.jornadaPrevista}m)</span>
             </div>
 
             <div className="bg-white/80 dark:bg-slate-900/80 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
@@ -1043,12 +1152,10 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
                             )}
                           </div>
                           <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                            {dayDetails.saldoMinutos < 0 ? (
+                            {dayDetails.descontoDia > 0 ? (
                               <span className="text-rose-500">Desc. R$ {dayDetails.descontoDia.toFixed(2)}</span>
-                            ) : dayDetails.saldoMinutos > 0 ? (
-                              <span className="text-emerald-500">Sem desconto</span>
                             ) : (
-                              'R$ 0.00'
+                              <span className="text-emerald-500">Sem desconto</span>
                             )}
                           </p>
                         </div>
