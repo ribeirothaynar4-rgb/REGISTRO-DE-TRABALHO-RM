@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Clock, Calendar as CalendarIcon, Save, RotateCcw, Trash2, HelpCircle, Info, TrendingDown, TrendingUp, CheckCircle, FileText, Download, Calculator, DollarSign, UserCheck } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, parseISO, addDays, differenceInDays } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -134,16 +134,16 @@ export const calculateDayDetails = (
     expectedMinutes += (targetAExt - targetAArr); // 210 min (Tarde)
   }
 
-  // Desconto financeiro do dia = Tempo que faltou para completar a jornada daquele período
+  // Desconto financeiro do dia = Calculado com base no saldo devedor do banco de horas
   const missingMinutes = Math.max(0, expectedMinutes - tempoConsiderado);
-  const descontoDia = missingMinutes * RATE_PER_MINUTE;
+  const descontoDia = saldoMinutos < 0 ? Math.abs(saldoMinutos) * RATE_PER_MINUTE : 0;
 
   // Texto explicativo
   let explicacao = `Saldo do Banco: +${creditoPermanencia}m (crédito permanência) - ${atrasos}m (atrasos) - ${buscarFilho}m (buscar filho) = ${saldoMinutos < 0 ? `-${Math.abs(saldoMinutos)} min` : `+${saldoMinutos} min`}. `;
-  if (missingMinutes > 0) {
-    explicacao += `Faltou ${missingMinutes}m para a jornada de ${formatMinutesToHuman(expectedMinutes)}, gerando desconto diário de R$ ${descontoDia.toFixed(2).replace('.', ',')}.`;
+  if (saldoMinutos < 0) {
+    explicacao += `Saldo devedor de ${Math.abs(saldoMinutos)}m, gerando desconto diário de R$ ${descontoDia.toFixed(2).replace('.', ',')}.`;
   } else {
-    explicacao += `Jornada completa. Sem descontos financeiros no salário.`;
+    explicacao += `Saldo em dia ou positivo. Sem descontos financeiros no salário.`;
   }
 
   return {
@@ -165,7 +165,10 @@ export const calculateDayDetails = (
 
 const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [pdfFilterType, setPdfFilterType] = useState<'month' | 'period'>('month');
   const [selectedPdfMonth, setSelectedPdfMonth] = useState<string>(format(new Date(), 'yyyy-MM'));
+  const [pdfStartDate, setPdfStartDate] = useState<string>(format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'));
+  const [pdfEndDate, setPdfEndDate] = useState<string>(format(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0), 'yyyy-MM-dd'));
   const [morningArrival, setMorningArrival] = useState<string>('08:00');
   const [morningExit, setMorningExit] = useState<string>('12:00');
   const [afternoonArrival, setAfternoonArrival] = useState<string>('13:30');
@@ -243,37 +246,49 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
     refreshEntries();
   };
 
-  const handleDownloadPdf = (detailed: boolean = true, showEarnings: boolean = false) => {
-    if (!selectedPdfMonth) return;
+  const handleDownloadPdf = () => {
+    let startDate: Date;
+    let endDate: Date;
+    let referenceLabel: string;
+    let fileNameSuffix: string;
+
+    if (pdfFilterType === 'month') {
+      if (!selectedPdfMonth) return;
+      const [yearStr, monthStr] = selectedPdfMonth.split('-');
+      const yearInt = parseInt(yearStr, 10);
+      const monthInt = parseInt(monthStr, 10);
+      startDate = new Date(yearInt, monthInt - 1, 1);
+      endDate = new Date(yearInt, monthInt, 0); // Last day of month
+      referenceLabel = format(startDate, "MMMM 'de' yyyy", { locale: ptBR }).toUpperCase();
+      fileNameSuffix = selectedPdfMonth;
+    } else {
+      if (!pdfStartDate || !pdfEndDate) return;
+      startDate = parseISO(pdfStartDate);
+      endDate = parseISO(pdfEndDate);
+      if (startDate > endDate) {
+        alert('Data inicial deve ser anterior à data final.');
+        return;
+      }
+      referenceLabel = `${format(startDate, 'dd/MM/yyyy')} ATÉ ${format(endDate, 'dd/MM/yyyy')}`;
+      fileNameSuffix = `${format(startDate, 'dd-MM-yyyy')}_a_${format(endDate, 'dd-MM-yyyy')}`;
+    }
     
-    const [yearStr, monthStr] = selectedPdfMonth.split('-');
-    const yearInt = parseInt(yearStr, 10);
-    const monthInt = parseInt(monthStr, 10);
-    
-    const referenceDate = new Date(yearInt, monthInt - 1, 1);
-    const referenceMonthLabel = format(referenceDate, "MMMM 'de' yyyy", { locale: ptBR }).toUpperCase();
     const issueDateLabel = format(new Date(), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
     
     const settings = getSettings();
     const workerName = settings.workerName || 'Não informado';
     const employerName = settings.employerName || 'Não informado';
     
-    const totalDays = new Date(yearInt, monthInt, 0).getDate();
     const tableRows: any[] = [];
-    const detailRows: any[] = [];
-    const rawDetailRows: { row: any[], hasCredit: boolean, hasDiscount: boolean }[] = [];
-    
+        
     const getDayNamePT = (dayIndex: number): string => {
       const days = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
       return days[dayIndex];
     };
-
     const getFullDayNamePT = (dayIndex: number): string => {
       const days = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
       return days[dayIndex];
     };
-    
-    const monthEntries = entries.filter(e => e.date.startsWith(selectedPdfMonth));
     
     let totalDiasTrabalhados = 0;
     let sumJornadaPrevista = 0;
@@ -284,16 +299,18 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
     let sumTempoConsiderado = 0;
     let sumSaldoMinutos = 0;
     let totalDescontoFinanceiro = 0;
+
+    const daysCount = differenceInDays(endDate, startDate) + 1;
     
-    for (let d = 1; d <= totalDays; d++) {
-      const dayStr = String(d).padStart(2, '0');
-      const fullDateStr = `${selectedPdfMonth}-${dayStr}`;
-      const dayDate = new Date(yearInt, monthInt - 1, d);
+    for (let i = 0; i < daysCount; i++) {
+      const dayDate = addDays(startDate, i);
+      const fullDateStr = format(dayDate, 'yyyy-MM-dd');
+      const dayStr = format(dayDate, 'dd');
       const dayOfWeekIndex = dayDate.getDay();
       const dayOfWeekName = getDayNamePT(dayOfWeekIndex);
       const fullDayOfWeekName = getFullDayNamePT(dayOfWeekIndex);
       
-      const dayEntry = monthEntries.find(e => e.date === fullDateStr);
+      const dayEntry = entries.find(e => e.date === fullDateStr);
       
       if (dayEntry) {
         const details = calculateDayDetails(
@@ -319,18 +336,12 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
         sumCreditos += details.creditoPermanencia;
         sumTempoConsiderado += details.tempoConsiderado;
         sumSaldoMinutos += details.saldoMinutos;
-        totalDescontoFinanceiro += details.descontoDia;
 
         let statusCell = 'No horário';
-        if (showEarnings) {
-          const dailyEarning = (details.jornadaPrevista * RATE_PER_MINUTE) - details.descontoDia;
-          statusCell = `R$ ${dailyEarning.toFixed(2).replace('.', ',')}`;
-        } else {
-          if (details.descontoDia > 0) {
-            statusCell = `Desc. R$ ${details.descontoDia.toFixed(2).replace('.', ',')}`;
-          } else if (details.saldoMinutos > 0) {
-            statusCell = `+${formatMinutesToHuman(details.saldoMinutos)} banco`;
-          }
+        if (details.saldoMinutos < 0) {
+          statusCell = `Devendo ${formatMinutesToHuman(Math.abs(details.saldoMinutos))}`;
+        } else if (details.saldoMinutos > 0) {
+          statusCell = `+${formatMinutesToHuman(details.saldoMinutos)} banco`;
         }
 
         tableRows.push([
@@ -350,27 +361,8 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
           statusCell
         ]);
 
-        let detailSaldoText = `Saldo Banco: ${details.saldoMinutos > 0 ? '+' : ''}${details.saldoMinutos} min\n`;
-        if (details.descontoDia > 0) {
-           detailSaldoText += `Faltas (R$ -${details.descontoDia.toFixed(2).replace('.', ',')})`;
-        } else {
-           detailSaldoText += `(Jornada completa)`;
-        }
-
-        const rowData = [
-          `${dayStr}/${monthStr} (${fullDayOfWeekName})`,
-          `${dayEntry.morningArrival || '-'} às ${dayEntry.morningExit || '-'}\n${dayEntry.afternoonArrival || '-'} às ${dayEntry.afternoonExit || '-'}`,
-          `[+] Crédito permanência: ${details.creditoPermanencia} min\n[-] Atrasos: ${details.atrasos} min\n[-] Buscar filho: ${details.buscarFilho} min\n(=) Saldo final: ${details.saldoMinutos < 0 ? `-${Math.abs(details.saldoMinutos)} min` : `+${details.saldoMinutos} min`}`,
-          `Tempo registrado: ${formatMinutesToHuman(details.tempoRegistrado)}\nAbatimentos (Filho): -${details.buscarFilho} min\nTotal Considerado: ${formatMinutesToHuman(details.tempoConsiderado)}`,
-          detailSaldoText
-        ];
-        detailRows.push(rowData);
-        rawDetailRows.push({
-          row: rowData,
-          hasCredit: details.saldoMinutos > 0,
-          hasDiscount: details.descontoDia > 0
-        });
-      } else {
+        
+                      } else {
         let textStatus = 'Sem registro';
         if (dayOfWeekIndex === 0) textStatus = 'DOMINGO';
         else if (dayOfWeekIndex === 6) textStatus = 'SÁBADO';
@@ -394,23 +386,13 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
       }
     }
     
+    // Calcula o desconto total baseado no saldo global do mês!
+    totalDescontoFinanceiro = sumSaldoMinutos < 0 ? Math.abs(sumSaldoMinutos) * RATE_PER_MINUTE : 0;
+    
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const primaryColor: [number, number, number] = [108, 62, 244]; // #6C3EF4 Roxo principal
     
-    let finalDetailRows = detailRows;
-    if (showEarnings) {
-      const exampleCredit = rawDetailRows.find(r => r.hasCredit);
-      const exampleDiscount = rawDetailRows.find(r => r.hasDiscount);
-      finalDetailRows = [];
-      if (exampleCredit) finalDetailRows.push(exampleCredit.row);
-      if (exampleDiscount && exampleDiscount !== exampleCredit) finalDetailRows.push(exampleDiscount.row);
-      if (finalDetailRows.length === 0) {
-        finalDetailRows = detailRows.slice(-2);
-      }
-    } else if (!detailed && finalDetailRows.length > 2) {
-      finalDetailRows = finalDetailRows.slice(-2);
-    }
-    
+        
     // CABEÇALHO PROFISSIONAL
     doc.setFillColor(108, 62, 244);
     doc.rect(0, 0, 297, 18, 'F');
@@ -435,9 +417,9 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
     doc.text(workerName, 42, 30);
 
     doc.setFont('Helvetica', 'bold');
-    doc.text(`Mês de Referência:`, 160, 25);
+    doc.text(`Período:`, 160, 25);
     doc.setFont('Helvetica', 'normal');
-    doc.text(referenceMonthLabel, 192, 25);
+    doc.text(referenceLabel, 192, 25);
 
     doc.setFont('Helvetica', 'bold');
     doc.text(`Data de Emissão:`, 160, 30);
@@ -462,7 +444,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
     // TABELA PRINCIPAL
     autoTable(doc, {
       startY: 49,
-      head: [['Data', 'Dia', 'Entrada', 'S. Almoço', 'V. Almoço', 'Saída', 'J. Prevista', 'T. Registrado', 'Atrasos', 'Buscar Filho', 'Créditos', 'T. Considerado', 'Saldo', showEarnings ? 'Ganhos (R$)' : 'Situação / Desconto']],
+      head: [['Data', 'Dia', 'Entrada', 'S. Almoço', 'V. Almoço', 'Saída', 'J. Prevista', 'T. Registrado', 'Atrasos', 'Buscar Filho', 'Créditos', 'T. Considerado', 'Saldo', 'Situação / Desconto']],
       body: tableRows,
       theme: 'grid',
       headStyles: { 
@@ -516,62 +498,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
       }
     });
 
-    let currentY = (doc as any).lastAutoTable.finalY + 8;
-
-    // SEÇÃO DE EXPLICAÇÃO DETALHADA DOS DIAS TRABALHADOS
-    if (finalDetailRows.length > 0) {
-      if (currentY + 40 > 200) {
-        doc.addPage();
-        currentY = 15;
-      }
-
-      doc.setFontSize(10);
-      doc.setFont('Helvetica', 'bold');
-      doc.setTextColor(108, 62, 244);
-      doc.text(detailed ? 'DETALHAMENTO E MEMÓRIA DE CÁLCULO POR DIA TRABALHADO:' : 'EXEMPLO DE DETALHAMENTO DE CÁLCULO (ÚLTIMOS 2 DIAS REGISTRADOS):', 14, currentY);
-      currentY += 4;
-
-      autoTable(doc, {
-        startY: currentY,
-        head: [['Data / Dia', 'Horários Registrados', 'Como o Saldo do Banco Foi Calculado', 'Horas p/ Pagamento', 'Saldo do Banco / Status']],
-        body: finalDetailRows,
-        theme: 'striped',
-        headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold' },
-        styles: { fontSize: 7.5, cellPadding: 2 },
-        columnStyles: {
-          0: { cellWidth: 42, fontStyle: 'bold' },
-          1: { cellWidth: 48 },
-          2: { cellWidth: 70 },
-          3: { cellWidth: 55 },
-          4: { cellWidth: 54, fontStyle: 'bold' }
-        }
-      });
-
-      currentY = (doc as any).lastAutoTable.finalY + 5;
-
-      // NOTA EXPLICATIVA SOBRE A REGRA
-      if (currentY + 16 > 200) {
-        doc.addPage();
-        currentY = 15;
-      }
-
-      doc.setFillColor(254, 243, 199); // Amber 100
-      doc.setDrawColor(245, 158, 11); // Amber 500
-      doc.roundedRect(14, currentY, 269, 13, 2, 2, 'FD');
-
-      doc.setFontSize(7);
-      doc.setFont('Helvetica', 'bold');
-      doc.setTextColor(180, 83, 9); // Amber 700
-      doc.text('NOTA EXPLICATIVA SOBRE A REGRA DO BANCO DE HORAS:', 18, currentY + 4);
-
-      doc.setFont('Helvetica', 'normal');
-      doc.setTextColor(120, 53, 15);
-      const ruleNoteText = 'O saldo do banco de horas é calculado utilizando os créditos obtidos pela permanência trabalhando além dos horários previstos da jornada (como sair para o almoço após as 12:00 ou após as 17:00), descontando os atrasos e o tempo utilizado para buscar o filho. O Tempo Considerado para Pagamento possui finalidade exclusivamente financeira e não participa do cálculo do banco de horas.';
-      const splitRuleText = doc.splitTextToSize(ruleNoteText, 260);
-      doc.text(splitRuleText, 18, currentY + 7.5);
-
-      currentY += 17;
-    }
+    let currentY = (doc as any).lastAutoTable.finalY + 15;
 
     // QUADRO RESUMO GERAL DO MÊS
     if (currentY + 55 > 200) {
@@ -586,7 +513,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
     doc.setFontSize(11);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(108, 62, 244);
-    doc.text('RESUMO GERAL DO MÊS', 20, currentY + 8);
+    doc.text('RESUMO GERAL', 20, currentY + 8);
 
     doc.setFontSize(8.5);
     doc.setTextColor(30, 41, 59);
@@ -682,7 +609,7 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
 
     doc.text(`Data: ____ / ____ / ________`, 20, signatureY + 11);
 
-    doc.save(`Folha_de_Ponto_${workerName.replace(/\s/g, '_')}_${selectedPdfMonth}.pdf`);
+    doc.save(`Folha_de_Ponto_${workerName.replace(/\s/g, '_')}_${fileNameSuffix}.pdf`);
   };
 
   // Cálculos acumulados do Banco de Horas Geral
@@ -699,9 +626,10 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
     acc.buscarFilho += d.buscarFilho;
     acc.creditoPermanencia += d.creditoPermanencia;
     acc.saldoMinutos += d.saldoMinutos;
-    acc.desconto += d.descontoDia;
     return acc;
   }, { atrasos: 0, buscarFilho: 0, creditoPermanencia: 0, saldoMinutos: 0, desconto: 0 });
+
+  totalStats.desconto = totalStats.saldoMinutos < 0 ? Math.abs(totalStats.saldoMinutos) * RATE_PER_MINUTE : 0;
 
   const formattedDateDisplay = format(new Date(selectedDate + 'T00:00:00'), "EEEE, d 'de' MMMM", { locale: ptBR });
 
@@ -801,34 +729,50 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
               Gere um relatório completo e autoexplicativo em PDF, com cálculo detalhado por dia e resumo mensal para o RH.
             </p>
           </div>
-          <div className="flex items-center gap-2.5">
-            <input
-              type="month"
-              value={selectedPdfMonth}
-              onChange={(e) => setSelectedPdfMonth(e.target.value)}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2.5 w-full md:w-auto">
+            <select
+              value={pdfFilterType}
+              onChange={(e) => setPdfFilterType(e.target.value as 'month' | 'period')}
               className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-violet-500 text-slate-900 dark:text-white"
-            />
-            <button
-              onClick={() => handleDownloadPdf(false)}
-              className="flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold px-4 py-2 rounded-lg text-sm transition-colors shadow-sm cursor-pointer"
             >
-              <Download className="w-4 h-4" />
-              <span>PDF Resumido</span>
-            </button>
-            <button
-              onClick={() => handleDownloadPdf(true, true)}
-              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors shadow-sm cursor-pointer"
-            >
-              <Download className="w-4 h-4" />
-              <span>PDF Ganhos Diários</span>
-            </button>
-            <button
-              onClick={() => handleDownloadPdf(true)}
+              <option value="month">Por Mês</option>
+              <option value="period">Por Período</option>
+            </select>
+            
+            {pdfFilterType === 'month' ? (
+              <input
+                type="month"
+                value={selectedPdfMonth}
+                onChange={(e) => setSelectedPdfMonth(e.target.value)}
+                className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-violet-500 text-slate-900 dark:text-white"
+              />
+            ) : (
+              <div className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={pdfStartDate}
+                  onChange={(e) => setPdfStartDate(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-violet-500 text-slate-900 dark:text-white w-32"
+                />
+                <span className="text-slate-400">até</span>
+                <input
+                  type="date"
+                  value={pdfEndDate}
+                  onChange={(e) => setPdfEndDate(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-violet-500 text-slate-900 dark:text-white w-32"
+                />
+              </div>
+            )}
+            
+            <div className="flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+              <button
+              onClick={() => handleDownloadPdf()}
               className="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-700 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors shadow-sm cursor-pointer"
             >
               <Download className="w-4 h-4" />
-              <span>PDF Completo</span>
+              <span>Exportar PDF</span>
             </button>
+            </div>
           </div>
         </div>
       </Card>
@@ -978,9 +922,9 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
               currentDayDetails.saldoMinutos > 0 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300' :
               'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
             }`}>
-              {currentDayDetails.saldoMinutos < 0 ? `Desconto R$ ${currentDayDetails.descontoDia.toFixed(2)}` :
+              {currentDayDetails.saldoMinutos < 0 ? `Devendo ${formatMinutesToHuman(Math.abs(currentDayDetails.saldoMinutos))}` :
                currentDayDetails.saldoMinutos > 0 ? `+${formatMinutesToHuman(currentDayDetails.saldoMinutos)} crédito` :
-               'Sem descontos'}
+               'Sem pendências'}
             </span>
           </div>
 
@@ -1151,13 +1095,6 @@ const PontoTab: React.FC<PontoTabProps> = ({ onUpdate }) => {
                               <span className="text-xs font-bold text-slate-500">Em dia</span>
                             )}
                           </div>
-                          <p className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                            {dayDetails.descontoDia > 0 ? (
-                              <span className="text-rose-500">Desc. R$ {dayDetails.descontoDia.toFixed(2)}</span>
-                            ) : (
-                              <span className="text-emerald-500">Sem desconto</span>
-                            )}
-                          </p>
                         </div>
                         <button
                           onClick={() => handleDelete(entry.id)}
